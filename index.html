@@ -73,4 +73,79 @@
       <!-- Players will be added here dynamically -->
     </div>
   </main>
+</div><!-- Login Page -->
+<div id="login-page">
+  <div class="login-card">
+    <h1>Wordly Audio Routing</h1>
+    <div class="login-tabs">
+      <button class="tab-button active" data-tab="credentials-tab">Session ID & Passcode</button>
+      <button class="tab-button" data-tab="link-tab">Weblink</button>
+    </div>
+    
+    <div class="tab-content active" id="credentials-tab">
+      <form id="credentials-form">
+        <div class="form-group">
+          <label for="session-id">Session ID:</label>
+          <input type="text" id="session-id" placeholder="XXXX-0000" required>
+        </div>
+        <div class="form-group">
+          <label for="passcode">Passcode (if required):</label>
+          <input type="text" id="passcode" placeholder="Optional passcode">
+        </div>
+        <button type="submit" class="login-button">Join Session</button>
+      </form>
+    </div>
+    
+    <div class="tab-content" id="link-tab">
+      <form id="link-form">
+        <div class="form-group">
+          <label for="weblink">Paste your invite link:</label>
+          <input type="text" id="weblink" placeholder="https://attend.wordly.ai/..." required>
+        </div>
+        <button type="submit" class="login-button">Join Session</button>
+      </form>
+    </div>
+    
+    <div class="status-message" id="login-status"></div>
+  </div>
+</div>
+
+<!-- App Page (Hidden initially) -->
+<div id="app-page" style="display: none;">
+  <header>
+    <h1>Wordly Audio Routing</h1>
+    <div class="session-info">
+      <span id="session-id-display"></span>
+      <button id="disconnect-btn">Disconnect</button>
+    </div>
+  </header>
+  
+  <main>
+    <div class="browser-warning" id="browser-warning">
+      <strong>Note:</strong> For the best experience with audio routing, please use Chrome or Edge.
+    </div>
+    
+    <div class="controls-panel">
+      <div class="global-controls">
+        <button id="global-collapse-btn" class="control-btn">Collapse All</button>
+      </div>
+      <div class="preset-controls">
+        <input type="text" id="preset-name" placeholder="Preset name..." class="preset-input">
+        <button id="save-preset-btn" class="preset-btn save-preset-btn">Save Preset</button>
+        <select id="preset-select" class="preset-select">
+          <option value="">-- Select Preset --</option>
+        </select>
+        <button id="load-preset-btn" class="preset-btn load-preset-btn">Load</button>
+        <button id="delete-preset-btn" class="preset-btn delete-preset-btn">Delete</button>
+      </div>
+      <div class="no-device-support" id="no-device-support">
+        Browser doesn't support audio device selection.
+      </div>
+      <button id="add-device-btn">Add Language/Device</button>
+    </div>
+    
+    <div id="player-grid" class="player-grid">
+      <!-- Players will be added here dynamically -->
+    </div>
+  </main>
 </div>
