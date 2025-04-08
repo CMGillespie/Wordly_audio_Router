@@ -561,23 +561,18 @@ input:focus-visible + .slider {
   max-width: 400px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
   text-align: center;
-  animation: slideInUp 0.4s ease-out, fadeOut 0.5s 2.5s forwards;
-  opacity: 0.95;
+  /* animation: slideInUp 0.4s ease-out, fadeOut 0.5s 2.5s forwards; */ /* CSS animation removed for JS control */
+  opacity: 0; /* Start hidden for JS fade in */
+  transition: opacity 0.5s ease-out; /* CSS transition for fade out */
+}
+
+.notification.visible { /* Class added by JS to show */
+    opacity: 0.95;
 }
 
 .notification.success { background-color: #2ecc71; }
 .notification.error { background-color: #e74c3c; }
 .notification.info { background-color: #3498db; } /* Added info type */
-
-@keyframes slideInUp {
-  from { opacity: 0; transform: translate(-50%, 30px); }
-  to { opacity: 0.95; transform: translate(-50%, 0); }
-}
-
-@keyframes fadeOut {
-  from { opacity: 0.95; transform: translate(-50%, 0); }
-  to { opacity: 0; transform: translate(-50%, -20px); } /* Fade upwards */
-}
 
 /* Responsive Adjustments */
 @media (max-width: 768px) {
