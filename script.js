@@ -440,14 +440,12 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="setting-group">
           <span class="setting-label">Language:</span>
           <select class="setting-select language-select">
-            <!-- Languages will be added dynamically -->
-          </select>
+            </select>
         </div>
         <div class="setting-group">
           <span class="setting-label">Device:</span>
           <select class="setting-select device-select">
-            <!-- Devices will be added dynamically -->
-          </select>
+            </select>
         </div>
         <label class="toggle">
           <input type="checkbox" class="audio-toggle" ${playerConfig.audioEnabled ? 'checked' : ''}>
