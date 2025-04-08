@@ -1,4 +1,4 @@
-// Wordly Audio Routing Script - Revised
+// Wordly Audio Routing Script - Revised (incorporates all fixes)
 document.addEventListener('DOMContentLoaded', () => {
   // DOM elements - Login page
   const loginPage = document.getElementById('login-page');
@@ -191,7 +191,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Switch to app page
         loginPage.style.display = 'none';
-        appPage.style.display = 'block'; // Use 'block' or 'flex' depending on CSS needs
+        appPage.style.display = 'flex'; // Use 'flex' to match CSS layout
         
         sessionIdDisplay.textContent = `Session: ${sessionId}`;
         
@@ -350,9 +350,9 @@ document.addEventListener('DOMContentLoaded', () => {
       websocket: null,
       status: 'connecting',
       phrases: {},
-      audioQueue: [],        // *** FIX #2: Added audio queue ***
-      isPlayingAudio: false, // *** FIX #2: Flag for queue processing ***
-      currentAudioElement: null // *** FIX #6: Track current audio element ***
+      audioQueue: [],        // FIX #2: Added audio queue
+      isPlayingAudio: false, // FIX #2: Flag for queue processing
+      currentAudioElement: null // FIX #6: Track current audio element
     };
     
     state.players.push(playerInstance);
@@ -460,14 +460,14 @@ document.addEventListener('DOMContentLoaded', () => {
     player.websocket = null; // Clear reference
 
     // Optional: Reconnect logic (consider adding backoff)
-    if (!event.wasClean && state.sessionId && state.players.find(p => p.id === player.id)) {
-       console.log(`Attempting to reconnect player ${player.id} in 5 seconds...`);
-       // setTimeout(() => {
-       //    if (state.players.find(p => p.id === player.id)) { // Check if player still exists
-       //       connectPlayerWebSocket(player);
-       //    }
-       // }, 5000);
-    }
+    // if (!event.wasClean && state.sessionId && state.players.find(p => p.id === player.id)) {
+    //    console.log(`Attempting to reconnect player ${player.id} in 5 seconds...`);
+    //    setTimeout(() => {
+    //       if (state.players.find(p => p.id === player.id)) { // Check if player still exists
+    //          connectPlayerWebSocket(player);
+    //       }
+    //    }, 5000);
+    // }
   }
 
   function handleWebSocketError(player, error) {
@@ -533,7 +533,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!player.audioEnabled) return;
 
     if (message.synthesizedSpeech && message.synthesizedSpeech.data && message.synthesizedSpeech.data.length > 0) {
-      // *** FIX #2: Add to queue instead of playing directly ***
+      // FIX #2: Add to queue instead of playing directly
       player.audioQueue.push({ 
           data: message.synthesizedSpeech.data, 
           phraseId: message.phraseId,
@@ -576,7 +576,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // --- Audio Playback & Queuing ---
 
-/** * Processes the audio queue for a player. Plays the next item if not already playing.
+  /** * Processes the audio queue for a player. Plays the next item if not already playing.
    * @param {Object} player - The player object
    */
   function processAudioQueue(player) {
@@ -596,12 +596,12 @@ document.addEventListener('DOMContentLoaded', () => {
       const blob = new Blob([new Uint8Array(audioItem.data)], { type: 'audio/wav' });
       const audioUrl = URL.createObjectURL(blob);
       const audioElement = new Audio();
-      player.currentAudioElement = audioElement; // *** FIX #6: Track current element ***
+      player.currentAudioElement = audioElement; // FIX #6: Track current element
 
       audioElement.src = audioUrl;
 
       audioElement.oncanplaythrough = async () => {
-          // *** FIX #5: Attempt setSinkId after src is set and potentially ready ***
+          // FIX #5: Attempt setSinkId after src is set and potentially ready
           if (audioItem.deviceId && state.supportsSinkId) {
               try {
                   // console.log(`Player ${player.id}: Attempting to set Sink ID: ${audioItem.deviceId}`); // DEBUG
@@ -618,9 +618,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
           // Play the audio
           try {
+              // Ensure audio context is resumed (required by some browsers after user interaction)
+              // await getAudioContext().resume(); // See getAudioContext helper if needed
               await audioElement.play();
               if(audioStatusEl) audioStatusEl.textContent = 'Playing audio...';
-              // *** FIX #3: Add playing class ***
+              // FIX #3: Add playing class
               if (phraseElement) phraseElement.classList.add('phrase-playing'); 
           } catch (playError) {
               console.error(`Player ${player.id}: Error playing audio:`, playError);
@@ -635,8 +637,9 @@ document.addEventListener('DOMContentLoaded', () => {
           cleanupAudio(player, audioUrl, phraseElement);
       };
 
+      // --- Updated onerror with detailed logging ---
       audioElement.onerror = (errorEvent) => { // Capture the event object
-          console.error(`Player ${player.id}: Audio element error event occurred.`); // Original log line
+          console.error(`Player ${player.id}: Audio element error event occurred.`); 
           
           // *** ADDED DETAIL LOGGING ***
           if (audioElement.error) {
@@ -649,6 +652,7 @@ document.addEventListener('DOMContentLoaded', () => {
           if(audioStatusEl) audioStatusEl.textContent = 'Audio playback error';
           cleanupAudio(player, audioUrl, phraseElement);
       };
+      // --------------------------------------------
 
       audioElement.onstalled = () => {
           console.warn(`Player ${player.id}: Audio stalled.`);
@@ -674,37 +678,78 @@ document.addEventListener('DOMContentLoaded', () => {
    */
   function cleanupAudio(player, audioUrl, phraseElement) {
       URL.revokeObjectURL(audioUrl);
-      // *** FIX #3: Remove playing class ***
+      // FIX #3: Remove playing class
       if (phraseElement) phraseElement.classList.remove('phrase-playing'); 
       player.isPlayingAudio = false;
-      player.currentAudioElement = null; // *** FIX #6: Clear current element tracking ***
+      player.currentAudioElement = null; // FIX #6: Clear current element tracking
       processAudioQueue(player); // Trigger processing the next item
   }
 
+
+  // --- This is the UPDATED stopPlayerAudio function ---
   /**
-   * Stops currently playing audio and clears the queue for a player.
+   * Stops currently playing audio and clears the queue for a player gracefully.
    * @param {Object} player - The player object
    */
   function stopPlayerAudio(player) {
-      // *** FIX #6: Stop current audio element ***
-      if (player.currentAudioElement) {
+      console.log(`Player ${player.id}: Stopping audio and clearing queue.`); // DEBUG
+
+      // --- Gracefully handle the currently playing audio element ---
+      const currentAudio = player.currentAudioElement;
+      if (currentAudio) {
           try {
-              player.currentAudioElement.pause();
-              player.currentAudioElement.src = ""; // Release resource
-              // Find the URL associated with this element if needed for revokeObjectURL
-              // This might require storing the URL alongside currentAudioElement
-          } catch(e) { console.error(`Error stopping audio for player ${player.id}:`, e); }
-          player.currentAudioElement = null;
+              // 1. Pause playback if it's not already paused/ended
+              if (!currentAudio.paused && !currentAudio.ended) {
+                  currentAudio.pause();
+                  console.log(`Player ${player.id}: Paused current audio element.`); // DEBUG
+              }
+              
+              // 2. Remove event listeners to prevent further processing (like cleanupAudio)
+              currentAudio.oncanplaythrough = null;
+              currentAudio.onended = null;
+              currentAudio.onerror = null; // Prevent the error handler from running after explicit stop
+              currentAudio.onstalled = null;
+
+              // 3. Clear the source *after* pausing and removing listeners
+              // Some browsers recommend loading an empty string or detaching srcObject
+              currentAudio.src = ''; // Clear src to release resources
+              // currentAudio.removeAttribute('src'); // Alternative
+              currentAudio.load(); // Force reload with empty src might help clean up state
+
+          } catch(e) { 
+              console.error(`Player ${player.id}: Error during explicit audio stop:`, e); 
+          } finally {
+              player.currentAudioElement = null; // Clear reference regardless of errors
+          }
       }
-      // *** FIX #2 & #6: Clear the queue ***
-      // If URLs were stored in queue, revoke them here
-      // For simplicity, we assume cleanupAudio handles revoking URLs as items are processed/ended/errored
-      player.audioQueue = []; 
-      player.isPlayingAudio = false; // Reset flag
+      // -----------------------------------------------------------
+
+      // --- Clear the audio queue ---
+      if (player.audioQueue.length > 0) {
+          console.log(`Player ${player.id}: Clearing ${player.audioQueue.length} items from audio queue.`); // DEBUG
+          // Potentially revoke URLs if stored: 
+          // player.audioQueue.forEach(item => { if(item.audioUrl) URL.revokeObjectURL(item.audioUrl); });
+          player.audioQueue = []; 
+      }
+      // ---------------------------
+
+      // --- Reset playback state ---
+      player.isPlayingAudio = false; 
+      // --------------------------
+
+      // --- Update UI ---
       const audioStatusEl = player.element.querySelector('.audio-status');
-      if(audioStatusEl) audioStatusEl.textContent = player.audioEnabled ? "Audio ready" : "Audio off";
-      console.log(`Player ${player.id}: Audio stopped and queue cleared.`);
+      if(audioStatusEl) {
+          audioStatusEl.textContent = player.audioEnabled ? "Audio ready" : "Audio off";
+      }
+      // Ensure any 'playing' visual feedback is removed
+       const playingPhrase = player.element.querySelector('.phrase-playing');
+       if (playingPhrase) {
+           playingPhrase.classList.remove('phrase-playing');
+       }
+       // -----------------
   }
+  // --- End of UPDATED stopPlayerAudio function ---
 
 
   // --- UI Updates and Event Handling ---
@@ -792,15 +837,15 @@ document.addEventListener('DOMContentLoaded', () => {
       playerEl.querySelector('.player-language-indicator').textContent = newLanguageName;
       
       if (player.websocket && player.websocket.readyState === WebSocket.OPEN) {
-        // *** FIX #4: Log the message being sent ***
+        // FIX #4: Log the message being sent
         const changeRequest = { type: 'change', languageCode: newLanguage };
         console.log(`Player ${player.id}: Sending language change request:`, JSON.stringify(changeRequest));
         
         try {
            // Stop audio before changing language to avoid mismatched audio
            const wasAudioEnabled = player.audioEnabled;
-           if(wasAudioEnabled) sendVoiceRequest(player, false);
-           stopPlayerAudio(player); // Clear queue etc.
+           if(wasAudioEnabled) sendVoiceRequest(player, false); // Disable voice first
+           stopPlayerAudio(player); // Clear queue etc. (now uses improved version)
 
            player.websocket.send(JSON.stringify(changeRequest));
            addSystemMessage(player, `Language changed to ${newLanguageName}.`);
@@ -817,11 +862,13 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) {
            console.error(`Player ${player.id}: Error sending language change:`, e);
            addSystemMessage(player, `Error changing language: ${e.message}`, true);
-           // Revert language?
-           player.language = languageSelect.value; // Keep UI consistent with state
+           // Revert language in UI? Or just log?
+           // player.language = languageSelect.value; // Keep UI consistent with state
+           languageSelect.value = player.language; // Revert dropdown if send fails
         }
       } else {
           console.warn(`Player ${player.id}: WebSocket not open. Language change only affects future connection.`);
+          // Update state even if not connected, so it's correct on next connection
       }
     });
     
@@ -832,7 +879,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const deviceName = getDeviceName(player.deviceId);
       playerEl.querySelector('.device-name').textContent = deviceName;
       addSystemMessage(player, `Output device set to: ${deviceName}`);
-      // Future audio will use this device ID (passed in audioItem)
+      // Future audio will use this device ID (passed in audioItem when dequeued)
     });
     
     // Audio toggle
@@ -848,7 +895,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (player.websocket && player.websocket.readyState === WebSocket.OPEN) {
            sendVoiceRequest(player, true);
         }
-        // Start processing queue if items exist
+        // Start processing queue if items exist and not already playing
         processAudioQueue(player); 
       } else {
         if(audioStatusEl) audioStatusEl.textContent = 'Audio off';
@@ -864,7 +911,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Player header buttons (Collapse/Remove)
     playerEl.querySelector('.player-header').addEventListener('click', (e) => {
-        // *** FIX #7: Delegate from header, check target specifically ***
+        // FIX #7: Delegate from header, check target specifically
         if (e.target.matches('.collapse-btn')) {
             // console.log(`Player ${player.id}: Collapse button clicked`); // DEBUG
             togglePlayerCollapse(player);
@@ -892,7 +939,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function togglePlayerCollapse(player) {
-    // *** FIX #7: Added console logs for debugging ***
+    // FIX #7: Added console logs for debugging
     // console.log(`Toggling collapse for player ${player.id}. Current state: ${player.collapsed}`); // DEBUG
     player.collapsed = !player.collapsed;
     
@@ -1001,17 +1048,16 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Remove players that are not in the preset
     const presetPlayerConfigs = preset.players || [];
-    const currentPlayerIds = state.players.map(p => p.id);
-    const presetLanguages = presetPlayerConfigs.map(p => p.language); // Use language as a loose identifier for now
+    // const currentPlayerIds = state.players.map(p => p.id);
+    // const presetLanguages = presetPlayerConfigs.map(p => p.language); // Use language as a loose identifier for now
 
     // Simple approach: Remove all current players and add preset players
-    // More complex: Try to match and update existing players - skipped for now
     
     // Disconnect and remove all existing players cleanly
     state.players.forEach(p => {
         stopPlayerAudio(p);
         if (p.websocket && p.websocket.readyState !== WebSocket.CLOSED) {
-             p.websocket.close(1000, "Loading preset");
+             try { p.websocket.close(1000, "Loading preset"); } catch(e){console.error(e);}
         }
     });
     playerGrid.innerHTML = '';
@@ -1058,6 +1104,20 @@ document.addEventListener('DOMContentLoaded', () => {
     notification.textContent = message;
     document.body.appendChild(notification);
     
-    setTimeout(() => notification.remove(), 3000); // Auto-remove after 3s
+    setTimeout(() => {
+      // Add a class to fade out, then remove after animation
+      notification.style.opacity = '0'; 
+      setTimeout(() => notification.remove(), 500); // Remove after fade
+    }, 2500); // Start fade after 2.5s
   }
-});
+
+  // Helper to potentially resume audio context if needed (advanced)
+  // let audioCtx;
+  // function getAudioContext() {
+  //     if (!audioCtx) {
+  //         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  //     }
+  //     return audioCtx;
+  // }
+
+}); // End DOMContentLoaded
