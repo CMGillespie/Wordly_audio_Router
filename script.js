@@ -576,7 +576,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // --- Audio Playback & Queuing ---
 
-  /** * Processes the audio queue for a player. Plays the next item if not already playing.
+/** * Processes the audio queue for a player. Plays the next item if not already playing.
    * @param {Object} player - The player object
    */
   function processAudioQueue(player) {
@@ -635,8 +635,17 @@ document.addEventListener('DOMContentLoaded', () => {
           cleanupAudio(player, audioUrl, phraseElement);
       };
 
-      audioElement.onerror = (error) => {
-          console.error(`Player ${player.id}: Audio element error:`, error);
+      audioElement.onerror = (errorEvent) => { // Capture the event object
+          console.error(`Player ${player.id}: Audio element error event occurred.`); // Original log line
+          
+          // *** ADDED DETAIL LOGGING ***
+          if (audioElement.error) {
+              console.error(`  >> Audio Error Code: ${audioElement.error.code}, Message: ${audioElement.error.message}`);
+          } else {
+              console.error("  >> No specific audioElement.error details available.");
+          }
+          // ***************************
+
           if(audioStatusEl) audioStatusEl.textContent = 'Audio playback error';
           cleanupAudio(player, audioUrl, phraseElement);
       };
