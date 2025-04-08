@@ -1,4 +1,4 @@
-// Wordly Audio Routing Script - Revised (incorporates all fixes)
+// Wordly Audio Routing Script - Revised (incorporates all fixes + handleSpeechMessage logging)
 document.addEventListener('DOMContentLoaded', () => {
   // DOM elements - Login page
   const loginPage = document.getElementById('login-page');
@@ -274,7 +274,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function addNewPlayer(config = {}) {
     const playerId = `player-${Date.now()}`;
     
-    // *** FIX #1: Default audioEnabled to false ***
+    // FIX #1: Default audioEnabled to false
     const defaultConfig = {
       language: 'en',
       deviceId: '', // Default to system default initially
@@ -439,7 +439,7 @@ document.addEventListener('DOMContentLoaded', () => {
       switch (message.type) {
         case 'status': handleStatusMessage(player, message); break;
         case 'phrase': handlePhraseMessage(player, message); break;
-        case 'speech': handleSpeechMessage(player, message); break;
+        case 'speech': handleSpeechMessage(player, message); break; // -> UPDATED FUNCTION BELOW
         case 'users': handleUsersMessage(player, message); break;
         case 'end': handleEndMessage(player); break;
         case 'error': handleErrorMessage(player, message); break;
@@ -528,24 +528,37 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // --- THIS FUNCTION NOW HAS ADDED LOGGING ---
   function handleSpeechMessage(player, message) {
-    // Add to queue only if audio is generally enabled for this player
-    if (!player.audioEnabled) return;
+    console.log(`Player ${player.id}: handleSpeechMessage called. AudioEnabled: ${player.audioEnabled}`); // LOG: Function entry and state
+
+    // Check if audio is generally enabled for this player
+    if (!player.audioEnabled) {
+      console.log(`Player ${player.id}: Audio is disabled, skipping speech message.`); // LOG: Skipping
+      return; 
+    }
 
     if (message.synthesizedSpeech && message.synthesizedSpeech.data && message.synthesizedSpeech.data.length > 0) {
-      // FIX #2: Add to queue instead of playing directly
+      console.log(`Player ${player.id}: Received valid speech data for phrase ${message.phraseId}.`); // LOG: Data received
+      
+      // Add to queue
       player.audioQueue.push({ 
           data: message.synthesizedSpeech.data, 
           phraseId: message.phraseId,
-          deviceId: player.deviceId // Use the device ID set for the player at this moment
+          deviceId: player.deviceId 
       });
-      // console.log(`Player ${player.id}: Queued audio for phrase ${message.phraseId}. Queue size: ${player.audioQueue.length}`); // DEBUG
-      processAudioQueue(player); // Attempt to process the queue
+      console.log(`Player ${player.id}: Queued audio. New queue size: ${player.audioQueue.length}`); // LOG: Queued item
+
+      // Attempt to process the queue
+      processAudioQueue(player); 
     } else {
+      console.warn(`Player ${player.id}: Received speech message with empty or invalid audio data for phrase ${message.phraseId}.`); // LOG: Invalid data
       const audioStatusEl = player.element.querySelector('.audio-status');
       if (audioStatusEl) audioStatusEl.textContent = 'Received empty audio data';
     }
   }
+  // --- END OF UPDATED handleSpeechMessage ---
+
 
   function handleUsersMessage(player, message) {
     // Could update UI with presenter/attendee info if needed
@@ -576,45 +589,42 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // --- Audio Playback & Queuing ---
 
-/** * Processes the audio queue for a player. Plays the next item if not already playing.
+  /** * Processes the audio queue for a player. Plays the next item if not already playing.
    * @param {Object} player - The player object
    */
   function processAudioQueue(player) {
-    // *** NEW LOGGING ADDED HERE ***
+    // Log entry and check conditions
     console.log(`Player ${player.id}: Entering processAudioQueue. isPlayingAudio: ${player.isPlayingAudio}, Queue size: ${player.audioQueue.length}`);
-    // ******************************
-
+    
     if (player.isPlayingAudio || player.audioQueue.length === 0) {
-      return; 
+      return; // Exit if already playing or queue is empty
     }
 
-    player.isPlayingAudio = true;
+    player.isPlayingAudio = true; // Set flag immediately
     const audioItem = player.audioQueue.shift(); // Get the next item
     
     const audioStatusEl = player.element.querySelector('.audio-status');
-    const phraseElement = player.element.querySelector(`#phrase-${player.id}-${audioItem.phraseId}`); // Find corresponding phrase element
+    const phraseElement = player.element.querySelector(`#phrase-${player.id}-${audioItem.phraseId}`); 
 
     try {
       const blob = new Blob([new Uint8Array(audioItem.data)], { type: 'audio/wav' });
       const audioUrl = URL.createObjectURL(blob);
 
-      // *** NEW LOGGING ADDED HERE ***
       console.log(`Player ${player.id}: Created Blob URL: ${audioUrl} for phrase ${audioItem.phraseId}`);
-      // ******************************
 
       const audioElement = new Audio();
-      player.currentAudioElement = audioElement; // Track current element
+      player.currentAudioElement = audioElement; 
 
       audioElement.src = audioUrl;
 
+      // Event Handlers
       audioElement.oncanplaythrough = async () => {
-          // --- This is where the "Attempting..." log should appear ---
-          console.log(`Player ${player.id}: oncanplaythrough event fired.`); // Log event firing
+          console.log(`Player ${player.id}: oncanplaythrough event fired.`); 
           if (audioItem.deviceId && state.supportsSinkId) {
               try {
-                  console.log(`Player ${player.id}: Attempting to set Sink ID: ${audioItem.deviceId}`); // The original debug log
+                  console.log(`Player ${player.id}: Attempting to set Sink ID: ${audioItem.deviceId}`); 
                   await audioElement.setSinkId(audioItem.deviceId);
-                  console.log(`Player ${player.id}: Sink ID set successfully (or promise resolved).`); // Log success/resolution
+                  console.log(`Player ${player.id}: Sink ID set successfully (or promise resolved).`); 
               } catch (error) {
                   console.error(`Player ${player.id}: Error setting Sink ID ${audioItem.deviceId}:`, error);
                   if(audioStatusEl) audioStatusEl.textContent = 'Error setting audio device';
@@ -622,11 +632,9 @@ document.addEventListener('DOMContentLoaded', () => {
           } else if (audioItem.deviceId && !state.supportsSinkId) {
               console.warn(`Player ${player.id}: Sink ID ${audioItem.deviceId} selected, but browser doesn't support setSinkId.`);
           } else {
-              console.log(`Player ${player.id}: No specific deviceId to set or browser doesn't support setSinkId.`); // Log if skipping
+              console.log(`Player ${player.id}: No specific deviceId to set or browser doesn't support setSinkId.`); 
           }
-          // ----------------------------------------------------------
 
-          // Play the audio
           try {
               await audioElement.play();
               if(audioStatusEl) audioStatusEl.textContent = 'Playing audio...';
@@ -664,10 +672,11 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (error) {
       console.error(`Player ${player.id}: Error processing audio blob:`, error);
       if(audioStatusEl) audioStatusEl.textContent = 'Error processing audio';
-      player.isPlayingAudio = false; // Ensure flag is reset on error
-      processAudioQueue(player); 
+      player.isPlayingAudio = false; // Ensure flag is reset on error before trying next item
+      processAudioQueue(player); // Try next item in queue immediately on blob processing error
     }
   }
+
   /**
    * Cleans up after audio playback (ended or error).
    * @param {Object} player - The player object
@@ -676,17 +685,17 @@ document.addEventListener('DOMContentLoaded', () => {
    */
   function cleanupAudio(player, audioUrl, phraseElement) {
       URL.revokeObjectURL(audioUrl);
-      // FIX #3: Remove playing class
       if (phraseElement) phraseElement.classList.remove('phrase-playing'); 
-      player.isPlayingAudio = false;
-      player.currentAudioElement = null; // FIX #6: Clear current element tracking
-      processAudioQueue(player); // Trigger processing the next item
+      player.isPlayingAudio = false; // Reset flag FIRST
+      player.currentAudioElement = null; 
+      // Call processAudioQueue AFTER resetting flag to allow next item to play
+      // Use setTimeout to yield execution briefly, preventing potential stack overflow in rapid error scenarios
+      setTimeout(() => processAudioQueue(player), 0); 
   }
 
 
-  // --- This is the UPDATED stopPlayerAudio function ---
   /**
-   * Stops currently playing audio and clears the queue for a player gracefully.
+   * Stops currently playing audio and clears the queue for a player gracefully. (Improved Version)
    * @param {Object} player - The player object
    */
   function stopPlayerAudio(player) {
@@ -696,28 +705,20 @@ document.addEventListener('DOMContentLoaded', () => {
       const currentAudio = player.currentAudioElement;
       if (currentAudio) {
           try {
-              // 1. Pause playback if it's not already paused/ended
               if (!currentAudio.paused && !currentAudio.ended) {
                   currentAudio.pause();
                   console.log(`Player ${player.id}: Paused current audio element.`); // DEBUG
               }
-              
-              // 2. Remove event listeners to prevent further processing (like cleanupAudio)
               currentAudio.oncanplaythrough = null;
               currentAudio.onended = null;
-              currentAudio.onerror = null; // Prevent the error handler from running after explicit stop
+              currentAudio.onerror = null; 
               currentAudio.onstalled = null;
-
-              // 3. Clear the source *after* pausing and removing listeners
-              // Some browsers recommend loading an empty string or detaching srcObject
-              currentAudio.src = ''; // Clear src to release resources
-              // currentAudio.removeAttribute('src'); // Alternative
-              currentAudio.load(); // Force reload with empty src might help clean up state
-
+              currentAudio.src = ''; 
+              currentAudio.load(); 
           } catch(e) { 
               console.error(`Player ${player.id}: Error during explicit audio stop:`, e); 
           } finally {
-              player.currentAudioElement = null; // Clear reference regardless of errors
+              player.currentAudioElement = null; 
           }
       }
       // -----------------------------------------------------------
@@ -725,8 +726,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // --- Clear the audio queue ---
       if (player.audioQueue.length > 0) {
           console.log(`Player ${player.id}: Clearing ${player.audioQueue.length} items from audio queue.`); // DEBUG
-          // Potentially revoke URLs if stored: 
-          // player.audioQueue.forEach(item => { if(item.audioUrl) URL.revokeObjectURL(item.audioUrl); });
+          // If Blobs/URLs need explicit cleanup, do it here
           player.audioQueue = []; 
       }
       // ---------------------------
@@ -740,14 +740,12 @@ document.addEventListener('DOMContentLoaded', () => {
       if(audioStatusEl) {
           audioStatusEl.textContent = player.audioEnabled ? "Audio ready" : "Audio off";
       }
-      // Ensure any 'playing' visual feedback is removed
-       const playingPhrase = player.element.querySelector('.phrase-playing');
-       if (playingPhrase) {
+      const playingPhrase = player.element.querySelector('.phrase-playing');
+      if (playingPhrase) {
            playingPhrase.classList.remove('phrase-playing');
        }
        // -----------------
   }
-  // --- End of UPDATED stopPlayerAudio function ---
 
 
   // --- UI Updates and Event Handling ---
@@ -843,7 +841,7 @@ document.addEventListener('DOMContentLoaded', () => {
            // Stop audio before changing language to avoid mismatched audio
            const wasAudioEnabled = player.audioEnabled;
            if(wasAudioEnabled) sendVoiceRequest(player, false); // Disable voice first
-           stopPlayerAudio(player); // Clear queue etc. (now uses improved version)
+           stopPlayerAudio(player); // Clear queue etc. (uses improved version)
 
            player.websocket.send(JSON.stringify(changeRequest));
            addSystemMessage(player, `Language changed to ${newLanguageName}.`);
@@ -860,13 +858,10 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) {
            console.error(`Player ${player.id}: Error sending language change:`, e);
            addSystemMessage(player, `Error changing language: ${e.message}`, true);
-           // Revert language in UI? Or just log?
-           // player.language = languageSelect.value; // Keep UI consistent with state
            languageSelect.value = player.language; // Revert dropdown if send fails
         }
       } else {
           console.warn(`Player ${player.id}: WebSocket not open. Language change only affects future connection.`);
-          // Update state even if not connected, so it's correct on next connection
       }
     });
     
@@ -980,9 +975,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function updatePresetDropdown() {
-    while (presetSelect.options.length > 1) {
-      presetSelect.remove(1);
-    }
+    // Clear previous options but keep the placeholder
+    const placeholder = presetSelect.options[0];
+    presetSelect.innerHTML = ''; 
+    presetSelect.appendChild(placeholder);
+    
     Object.keys(state.presets).sort().forEach(presetName => { // Sort names alphabetically
       const option = document.createElement('option');
       option.value = presetName;
@@ -1003,8 +1000,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const presetConfig = {
-      // sessionId: state.sessionId, // Maybe don't save session ID? Or make optional?
-      // passcode: state.passcode,  // Definitely don't save passcode
       players: state.players.map(p => ({ // Only save player layout/settings
         language: p.language,
         deviceId: p.deviceId,
@@ -1044,12 +1039,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     console.log(`Loading preset "${presetName}"`);
     
-    // Remove players that are not in the preset
     const presetPlayerConfigs = preset.players || [];
-    // const currentPlayerIds = state.players.map(p => p.id);
-    // const presetLanguages = presetPlayerConfigs.map(p => p.language); // Use language as a loose identifier for now
-
-    // Simple approach: Remove all current players and add preset players
     
     // Disconnect and remove all existing players cleanly
     state.players.forEach(p => {
@@ -1063,10 +1053,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Add players from the preset
     if (presetPlayerConfigs.length > 0) {
-        presetPlayerConfigs.forEach(playerConfig => {
-            addNewPlayer(playerConfig); // Add player using saved config
+        // Use Promise.all to wait for all players to potentially connect
+        // Although addNewPlayer doesn't return a promise that resolves on connection,
+        // this structure allows adding them sequentially.
+        Promise.all(presetPlayerConfigs.map(playerConfig => {
+            return new Promise(resolve => {
+                 // Add slight delay between adding players if needed, though likely unnecessary
+                 setTimeout(() => {
+                     addNewPlayer(playerConfig); 
+                     resolve();
+                 }, 50); // 50ms delay
+            });
+        })).then(() => {
+            showNotification(`Loaded preset "${presetName}"`, 'success');
         });
-        showNotification(`Loaded preset "${presetName}"`, 'success');
+        
     } else {
         showNotification(`Preset "${presetName}" loaded (no players defined)`, 'info');
     }
@@ -1083,6 +1084,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
           localStorage.setItem('wordlyAudioPresets', JSON.stringify(state.presets));
           updatePresetDropdown();
+           presetSelect.value = ''; // Reset selection
           showNotification(`Preset "${presetName}" deleted`, 'success');
         } catch (error) {
           console.error('Error deleting preset:', error);
@@ -1102,20 +1104,13 @@ document.addEventListener('DOMContentLoaded', () => {
     notification.textContent = message;
     document.body.appendChild(notification);
     
+    // Use CSS transition/animation for fade out if defined in CSS
+    // This JS fallback ensures removal
+    const notificationDuration = 3000; // Duration notification stays visible
     setTimeout(() => {
-      // Add a class to fade out, then remove after animation
-      notification.style.opacity = '0'; 
-      setTimeout(() => notification.remove(), 500); // Remove after fade
-    }, 2500); // Start fade after 2.5s
+       notification.style.opacity = '0'; // Example fade out using opacity
+       setTimeout(() => notification.remove(), 500); // Remove from DOM after fade
+    }, notificationDuration - 500); // Start fade 500ms before removing
   }
-
-  // Helper to potentially resume audio context if needed (advanced)
-  // let audioCtx;
-  // function getAudioContext() {
-  //     if (!audioCtx) {
-  //         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  //     }
-  //     return audioCtx;
-  // }
 
 }); // End DOMContentLoaded
