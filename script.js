@@ -576,18 +576,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // --- Audio Playback & Queuing ---
 
-  /** * Processes the audio queue for a player. Plays the next item if not already playing.
+/** * Processes the audio queue for a player. Plays the next item if not already playing.
    * @param {Object} player - The player object
    */
   function processAudioQueue(player) {
+    // *** NEW LOGGING ADDED HERE ***
+    console.log(`Player ${player.id}: Entering processAudioQueue. isPlayingAudio: ${player.isPlayingAudio}, Queue size: ${player.audioQueue.length}`);
+    // ******************************
+
     if (player.isPlayingAudio || player.audioQueue.length === 0) {
-      // console.log(`Player ${player.id}: Skipping queue processing. Playing: ${player.isPlayingAudio}, Queue size: ${player.audioQueue.length}`); // DEBUG
       return; 
     }
 
     player.isPlayingAudio = true;
     const audioItem = player.audioQueue.shift(); // Get the next item
-    // console.log(`Player ${player.id}: Dequeued audio for phrase ${audioItem.phraseId}. Queue size: ${player.audioQueue.length}`); // DEBUG
     
     const audioStatusEl = player.element.querySelector('.audio-status');
     const phraseElement = player.element.querySelector(`#phrase-${player.id}-${audioItem.phraseId}`); // Find corresponding phrase element
@@ -595,81 +597,77 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const blob = new Blob([new Uint8Array(audioItem.data)], { type: 'audio/wav' });
       const audioUrl = URL.createObjectURL(blob);
+
+      // *** NEW LOGGING ADDED HERE ***
+      console.log(`Player ${player.id}: Created Blob URL: ${audioUrl} for phrase ${audioItem.phraseId}`);
+      // ******************************
+
       const audioElement = new Audio();
-      player.currentAudioElement = audioElement; // FIX #6: Track current element
+      player.currentAudioElement = audioElement; // Track current element
 
       audioElement.src = audioUrl;
 
       audioElement.oncanplaythrough = async () => {
-          // FIX #5: Attempt setSinkId after src is set and potentially ready
+          // --- This is where the "Attempting..." log should appear ---
+          console.log(`Player ${player.id}: oncanplaythrough event fired.`); // Log event firing
           if (audioItem.deviceId && state.supportsSinkId) {
               try {
-                  // console.log(`Player ${player.id}: Attempting to set Sink ID: ${audioItem.deviceId}`); // DEBUG
+                  console.log(`Player ${player.id}: Attempting to set Sink ID: ${audioItem.deviceId}`); // The original debug log
                   await audioElement.setSinkId(audioItem.deviceId);
-                  // console.log(`Player ${player.id}: Sink ID set successfully.`); // DEBUG
+                  console.log(`Player ${player.id}: Sink ID set successfully (or promise resolved).`); // Log success/resolution
               } catch (error) {
                   console.error(`Player ${player.id}: Error setting Sink ID ${audioItem.deviceId}:`, error);
                   if(audioStatusEl) audioStatusEl.textContent = 'Error setting audio device';
-                  // Playback will continue on default device
               }
           } else if (audioItem.deviceId && !state.supportsSinkId) {
               console.warn(`Player ${player.id}: Sink ID ${audioItem.deviceId} selected, but browser doesn't support setSinkId.`);
+          } else {
+              console.log(`Player ${player.id}: No specific deviceId to set or browser doesn't support setSinkId.`); // Log if skipping
           }
+          // ----------------------------------------------------------
 
           // Play the audio
           try {
-              // Ensure audio context is resumed (required by some browsers after user interaction)
-              // await getAudioContext().resume(); // See getAudioContext helper if needed
               await audioElement.play();
               if(audioStatusEl) audioStatusEl.textContent = 'Playing audio...';
-              // FIX #3: Add playing class
               if (phraseElement) phraseElement.classList.add('phrase-playing'); 
           } catch (playError) {
               console.error(`Player ${player.id}: Error playing audio:`, playError);
               if(audioStatusEl) audioStatusEl.textContent = 'Audio playback error';
-              cleanupAudio(player, audioUrl, phraseElement); // Cleanup on play error too
+              cleanupAudio(player, audioUrl, phraseElement); 
           }
       };
       
       audioElement.onended = () => {
-          // console.log(`Player ${player.id}: Audio ended for phrase ${audioItem.phraseId}`); // DEBUG
           if(audioStatusEl) audioStatusEl.textContent = 'Audio playback completed';
           cleanupAudio(player, audioUrl, phraseElement);
       };
 
-      // --- Updated onerror with detailed logging ---
-      audioElement.onerror = (errorEvent) => { // Capture the event object
+      audioElement.onerror = (errorEvent) => { 
           console.error(`Player ${player.id}: Audio element error event occurred.`); 
-          
-          // *** ADDED DETAIL LOGGING ***
           if (audioElement.error) {
               console.error(`  >> Audio Error Code: ${audioElement.error.code}, Message: ${audioElement.error.message}`);
           } else {
               console.error("  >> No specific audioElement.error details available.");
           }
-          // ***************************
-
           if(audioStatusEl) audioStatusEl.textContent = 'Audio playback error';
           cleanupAudio(player, audioUrl, phraseElement);
       };
-      // --------------------------------------------
 
       audioElement.onstalled = () => {
           console.warn(`Player ${player.id}: Audio stalled.`);
-          // Maybe cleanup and try next? Or just let it resolve?
       };
       
-      // Load the audio (required by some browsers before setting sinkId or playing)
+      // Load the audio
       audioElement.load();
 
     } catch (error) {
       console.error(`Player ${player.id}: Error processing audio blob:`, error);
       if(audioStatusEl) audioStatusEl.textContent = 'Error processing audio';
       player.isPlayingAudio = false; // Ensure flag is reset on error
-      processAudioQueue(player); // Try next item? Or maybe stop?
+      processAudioQueue(player); 
     }
   }
-
   /**
    * Cleans up after audio playback (ended or error).
    * @param {Object} player - The player object
