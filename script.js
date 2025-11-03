@@ -34,34 +34,79 @@ document.addEventListener('DOMContentLoaded', () => {
     presets: {},
     supportsSinkId: typeof HTMLAudioElement !== 'undefined' && 
                    typeof HTMLAudioElement.prototype.setSinkId === 'function',
-    allCollapsed: false
+    allCollapsed: false,
+    languageMap: {} // <-- NEW: Will be populated from the live JSON URL
   };
   
-  // Define language mapping
-  const languageMap = {
-    'af': 'Afrikaans', 'sq': 'Albanian', 'ar': 'Arabic', 'hy': 'Armenian', 'bn': 'Bengali', 
-    'bg': 'Bulgarian', 'zh-HK': 'Cantonese', 'ca': 'Catalan', 'zh-CN': 'Chinese (Simplified)', 
-    'zh-TW': 'Chinese (Traditional)', 'hr': 'Croatian', 'cs': 'Czech', 'da': 'Danish', 
-    'nl': 'Dutch', 'en': 'English (US)', 'en-AU': 'English (AU)', 'en-GB': 'English (UK)', 
-    'et': 'Estonian', 'fi': 'Finnish', 'fr': 'French (FR)', 'fr-CA': 'French (CA)', 
-    'ka': 'Georgian', 'de': 'German', 'el': 'Greek', 'gu': 'Gujarati', 'he': 'Hebrew', 
-    'hi': 'Hindi', 'hu': 'Hungarian', 'is': 'Icelandic', 'id': 'Indonesian', 'ga': 'Irish', 
-    'it': 'Italian', 'ja': 'Japanese', 'kn': 'Kannada', 'ko': 'Korean', 'lv': 'Latvian', 
-    'lt': 'Lithuanian', 'mk': 'Macedonian', 'ms': 'Malay', 'mt': 'Maltese', 'no': 'Norwegian', 
-    'fa': 'Persian', 'pl': 'Polish', 'pt': 'Portuguese (PT)', 'pt-BR': 'Portuguese (BR)', 
-    'ro': 'Romanian', 'ru': 'Russian', 'sr': 'Serbian', 'sk': 'Slovak', 'sl': 'Slovenian', 
-    'es': 'Spanish (ES)', 'es-MX': 'Spanish (MX)', 'sv': 'Swedish', 'tl': 'Tagalog', 
-    'th': 'Thai', 'tr': 'Turkish', 'uk': 'Ukrainian', 'vi': 'Vietnamese', 'cy': 'Welsh', 
-    'pa': 'Punjabi', 'sw': 'Swahili', 'ta': 'Tamil', 'ur': 'Urdu', 
-    'zh': 'Chinese' // Backward compatibility
+  // --- NEW: Fallback language map in case the fetch fails ---
+  // This ensures the app can still run even if the JSON URL is down.
+  const fallbackLanguageMap = {
+    'en': 'English (US)',
+    'es': 'Spanish (ES)',
+    'fr': 'French (FR)',
+    'de': 'German',
+    'ja': 'Japanese',
+    'pt-BR': 'Portuguese (BR)',
+    'zh-CN': 'Chinese (Simplified)'
   };
+  
+  // --- DELETED: The old hard-coded languageMap object (lines 43-61) is gone. ---
   
   // Initialize the application
-  init();
+  init(); // This function is now async
   
   // --- Initialization Functions ---
 
-  function init() {
+  /**
+   * --- NEW: Fetches and processes the live language list ---
+   * This function is called by init() when the app first loads.
+   * It fetches the JSON, filters for translatable languages, 
+   * and transforms it into the simple {code: name} map our app expects.
+   */
+  async function loadLanguageData() {
+    const url = 'https://assets.wordly.ai/language-config/languages.json';
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Transform the array of objects into the key-value map we need
+      // We also filter to ONLY include languages that are "isTranslatable"
+      const newMap = data.languages
+        .filter(lang => lang.isTranslatable) // Only add translatable languages
+        .reduce((map, lang) => {
+          map[lang.wordlyCode] = lang.englishName; // Use the properties from the JSON
+          return map;
+        }, {});
+
+      if (Object.keys(newMap).length === 0) {
+        throw new Error('Language list was processed but resulted in an empty map.');
+      }
+      
+      state.languageMap = newMap; // Load the new map into our app's state
+      console.log(`Successfully loaded ${Object.keys(state.languageMap).length} languages from URL.`);
+
+    } catch (error) {
+      console.error('Error fetching or processing language list:', error);
+      console.warn('Falling back to basic hard-coded language list.');
+      state.languageMap = fallbackLanguageMap; // Use the fallback on any error
+      
+      // Notify the user on the login page, as this happens before login.
+      showLoginError('Could not load full language list. Using a basic fallback.');
+    }
+  }
+
+  /**
+   * --- UPDATED: init() is now async ---
+   * It will 'await' the language list to be loaded before starting the rest of the app.
+   */
+  async function init() {
+    await loadLanguageData(); // <-- NEW: Load languages before doing anything else
+    
+    // These functions will now run *after* the language list is ready.
     setupTabs();
     setupLoginForms();
     setupPresetControls();
@@ -295,7 +340,7 @@ document.addEventListener('DOMContentLoaded', () => {
     playerEl.id = playerId;
     
     const deviceName = getDeviceName(playerConfig.deviceId);
-    const languageName = getLanguageName(playerConfig.language);
+    const languageName = getLanguageName(playerConfig.language); // <-- USES UPDATED FUNCTION
     
     playerEl.innerHTML = `
       <div class="player-header">
@@ -334,7 +379,7 @@ document.addEventListener('DOMContentLoaded', () => {
     playerGrid.appendChild(playerEl);
     
     const languageSelect = playerEl.querySelector('.language-select');
-    populateLanguageSelect(languageSelect, playerConfig.language);
+    populateLanguageSelect(languageSelect, playerConfig.language); // <-- USES UPDATED FUNCTION
     
     const deviceSelect = playerEl.querySelector('.device-select');
     populateDeviceSelect(deviceSelect, playerConfig.deviceId);
@@ -770,14 +815,25 @@ document.addEventListener('DOMContentLoaded', () => {
     transcriptContainer.insertBefore(messageEl, transcriptContainer.firstChild);
   }
 
+  /**
+   * --- UPDATED: Reads from state.languageMap ---
+   */
   function populateLanguageSelect(selectElement, selectedLanguage) {
     selectElement.innerHTML = ''; // Clear existing
-    Object.entries(languageMap).forEach(([code, name]) => {
+    
+    // Read from the dynamic map in our app's state
+    Object.entries(state.languageMap).forEach(([code, name]) => {
       const option = document.createElement('option');
       option.value = code;
       option.textContent = name;
       selectElement.appendChild(option);
     });
+    
+    // Sort the options alphabetically by text content
+    Array.from(selectElement.options)
+      .sort((a, b) => a.text.localeCompare(b.text))
+      .forEach(option => selectElement.appendChild(option));
+      
     selectElement.value = selectedLanguage; // Set selected
   }
 
@@ -810,8 +866,12 @@ document.addEventListener('DOMContentLoaded', () => {
       return device?.label || `Output ${deviceId.slice(0, 6)}...` || 'Unknown Device';
   }
 
+  /**
+   * --- UPDATED: Reads from state.languageMap ---
+   */
   function getLanguageName(code) {
-    return languageMap[code] || code;
+    // Read from the dynamic map in our app's state
+    return state.languageMap[code] || code;
   }
 
   function addPlayerEventListeners(playerEl, player) { // Pass player instance
@@ -826,9 +886,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const newLanguage = e.target.value;
       if (newLanguage === player.language) return;
 
-      const oldLanguageName = getLanguageName(player.language);
+      const oldLanguageName = getLanguageName(player.language); // Uses new function
       player.language = newLanguage;
-      const newLanguageName = getLanguageName(newLanguage);
+      const newLanguageName = getLanguageName(newLanguage); // Uses new function
       
       playerEl.querySelector('.player-language-indicator').textContent = newLanguageName;
       
@@ -910,7 +970,7 @@ document.addEventListener('DOMContentLoaded', () => {
             togglePlayerCollapse(player);
         } else if (e.target.matches('.remove-btn')) {
             // console.log(`Player ${player.id}: Remove button clicked`); // DEBUG
-            if (confirm(`Are you sure you want to remove the player for ${getLanguageName(player.language)}?`)) {
+            if (confirm(`Are you sure you want to remove the player for ${getLanguageName(player.language)}?`)) { // Uses new function
                removePlayer(player);
             }
         }
@@ -1103,14 +1163,24 @@ document.addEventListener('DOMContentLoaded', () => {
     notification.className = `notification ${type}`;
     notification.textContent = message;
     document.body.appendChild(notification);
-    
-    // Use CSS transition/animation for fade out if defined in CSS
-    // This JS fallback ensures removal
-    const notificationDuration = 3000; // Duration notification stays visible
+
+    // Add a class to make it visible (for CSS transitions)
+    // Needs a slight delay to ensure the element is in the DOM
     setTimeout(() => {
-       notification.style.opacity = '0'; // Example fade out using opacity
-       setTimeout(() => notification.remove(), 500); // Remove from DOM after fade
+      notification.classList.add('visible');
+    }, 10);
+    
+    const notificationDuration = 3000;
+    
+    // Set timeout to start fading out
+    setTimeout(() => {
+       notification.classList.remove('visible'); // Let CSS handle the fade out
     }, notificationDuration - 500); // Start fade 500ms before removing
+
+    // Set timeout to remove from DOM after fade out
+    setTimeout(() => {
+       notification.remove();
+    }, notificationDuration);
   }
 
 }); // End DOMContentLoaded
