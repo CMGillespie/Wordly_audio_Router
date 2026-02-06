@@ -30,12 +30,13 @@ document.addEventListener('DOMContentLoaded', () => {
     sessionId: null,
     passcode: '',
     devices: [],
-    players: [], // Stores state for each player instance
+    players: [], 
     presets: {},
     supportsSinkId: typeof HTMLAudioElement !== 'undefined' && 
                    typeof HTMLAudioElement.prototype.setSinkId === 'function',
     allCollapsed: false,
-    languageMap: {} // <-- NEW: Will be populated from the live JSON URL
+    languageMap: {},
+    isUserDisconnecting: false // v1.1 Tracking
   };
   
   // --- NEW: Fallback language map in case the fetch fails ---
@@ -50,18 +51,58 @@ document.addEventListener('DOMContentLoaded', () => {
     'zh-CN': 'Chinese (Simplified)'
   };
   
-  // --- DELETED: The old hard-coded languageMap object (lines 43-61) is gone. ---
-  
   // Initialize the application
   init(); // This function is now async
   
+  // --- v1.1: Synthetic Audio Alert (Web Audio API) ---
+  // Generates a two-tone "Ding" sequence using the browser's audio engine.
+  function playAlertSound() {
+    try {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const playTone = (freq, start, duration) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime + start);
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime + start);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + start + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(audioCtx.currentTime + start);
+        osc.stop(audioCtx.currentTime + start + duration);
+      };
+      playTone(440, 0, 0.2); // Low beep
+      playTone(880, 0.2, 0.4); // High beep
+    } catch (e) { console.error("Could not play synthetic alert:", e); }
+  }
+
+  // --- v1.1: Reconnection Controller ---
+  // Manages rapid-fire retries (100ms start) and alerts the tech if recovery fails.
+  function handleReconnection(player) {
+    player.reconnectAttempts = (player.reconnectAttempts || 0) + 1;
+    
+    // Trigger "Ding" alert after 3 failed rapid attempts
+    if (player.reconnectAttempts === 3) playAlertSound();
+
+    // Exponential Backoff: 100ms, 200ms, 400ms... capped at 10s
+    const delay = Math.min(100 * Math.pow(2, player.reconnectAttempts - 1), 10000);
+    
+    updatePlayerStatus(player, 'connecting', `Retrying (${player.reconnectAttempts})...`);
+    console.warn(`Connection lost for ${player.id}. Retrying in ${delay}ms...`);
+
+    setTimeout(() => {
+        // Only reconnect if the user hasn't manually disconnected or removed the player
+        if (!state.isUserDisconnecting && state.players.find(p => p.id === player.id)) {
+            connectPlayerWebSocket(player);
+        }
+    }, delay);
+  }
+
   // --- Initialization Functions ---
 
   /**
    * --- NEW: Fetches and processes the live language list ---
    * This function is called by init() when the app first loads.
-   * It fetches the JSON, filters for translatable languages, 
-   * and transforms it into the simple {code: name} map our app expects.
    */
   async function loadLanguageData() {
     const url = 'https://assets.wordly.ai/language-config/languages.json';
@@ -154,10 +195,11 @@ document.addEventListener('DOMContentLoaded', () => {
     deletePresetBtn.addEventListener('click', deleteSelectedPreset);
   }
 
-  // --- Login and Session Management ---
+// --- Login and Session Management ---
 
   function handleCredentialsForm(e) {
     e.preventDefault();
+    state.isUserDisconnecting = false; // v1.1 Reset flag for new attempt
     let inputSessionId = document.getElementById('session-id').value.trim();
     const inputPasscode = document.getElementById('passcode').value.trim();
     
@@ -173,6 +215,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function handleLinkForm(e) {
     e.preventDefault();
+    state.isUserDisconnecting = false; // v1.1 Reset flag for new attempt
     const weblink = document.getElementById('weblink').value.trim();
     const { sessionId: parsedSessionId, passcode: parsedPasscode } = parseWeblink(weblink);
     if (!parsedSessionId) {
@@ -285,8 +328,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function disconnectFromSession() {
+    state.isUserDisconnecting = true; // v1.1: Signal that this is an intentional exit
     console.log("Disconnecting from session...");
+
     // Stop audio and clear queues for all players first
+
     state.players.forEach(player => {
         stopPlayerAudio(player); // Ensure audio stops
         if (player.websocket && player.websocket.readyState === WebSocket.OPEN) {
@@ -432,26 +478,50 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // --- WebSocket Handling ---
 
-  function connectPlayerWebSocket(player) {
+function connectPlayerWebSocket(player) {
     if (!state.sessionId) {
         updatePlayerStatus(player, 'error', 'Missing Session ID');
         return;
     }
-    if (player.websocket && player.websocket.readyState === WebSocket.OPEN) {
-        console.log(`WebSocket for player ${player.id} already open.`);
-        return;
-    }
+    // v1.1: Clear any existing heartbeat before starting a new connection
+    if (player.heartbeatTimer) clearInterval(player.heartbeatTimer);
 
     updatePlayerStatus(player, 'connecting');
     try {
       player.websocket = new WebSocket('wss://endpoint.wordly.ai/attend');
-      player.websocket.onopen = () => handleWebSocketOpen(player);
+      
+      player.websocket.onopen = () => {
+        player.reconnectAttempts = 0; // Reset counter on successful open
+        handleWebSocketOpen(player);
+
+        // v1.1 Heartbeat: Send echo every 30s to keep the WSS pipe open
+        player.heartbeatTimer = setInterval(() => {
+          if (player.websocket.readyState === WebSocket.OPEN) {
+            player.websocket.send(JSON.stringify({ type: 'echo' }));
+          }
+        }, 30000);
+      };
+
       player.websocket.onmessage = (event) => handleWebSocketMessage(player, event);
-      player.websocket.onclose = (event) => handleWebSocketClose(player, event);
-      player.websocket.onerror = (error) => handleWebSocketError(player, error);
+      
+      player.websocket.onclose = (event) => {
+        // v1.1 Cleanup heartbeat on close
+        if (player.heartbeatTimer) clearInterval(player.heartbeatTimer);
+        
+        if (state.isUserDisconnecting) {
+            updatePlayerStatus(player, 'disconnected', 'Disconnected');
+        } else {
+            // v1.1 Trigger the automatic reconnection loop
+            handleReconnection(player);
+        }
+      };
+
+      player.websocket.onerror = (error) => {
+        // Force a close to trigger the onclose reconnection logic
+        if (player.websocket) player.websocket.close();
+      };
     } catch (error) {
-      console.error(`Error creating WebSocket for player ${player.id}:`, error);
-      updatePlayerStatus(player, 'error', 'Connection error');
+      handleReconnection(player);
     }
   }
 
