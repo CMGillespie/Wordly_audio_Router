@@ -707,20 +707,36 @@ function connectPlayerWebSocket(player) {
   /** * Processes the audio queue for a player. Plays the next item if not already playing.
    * @param {Object} player - The player object
    */
+  /**
+   * v1.1.3: Processes the audio queue with a 15s Watchdog Timer
+   * to prevent "Silent Drops" where the audio engine hangs.
+   */
   function processAudioQueue(player) {
-    // Log entry and check conditions
-    console.log(`Player ${player.id}: Entering processAudioQueue. isPlayingAudio: ${player.isPlayingAudio}, Queue size: ${player.audioQueue.length}`);
+    const audioStatusEl = player.element.querySelector('.audio-status');
     
-    if (player.isPlayingAudio || player.audioQueue.length === 0) {
-      return; // Exit if already playing or queue is empty
+    // v1.1.3: Visual Sync Check - Shows if audio is lagging behind the text
+    if (audioStatusEl && player.audioEnabled) {
+      audioStatusEl.textContent = player.audioQueue.length > 0 
+        ? `Queue: ${player.audioQueue.length} items` 
+        : 'Audio ready';
     }
 
-    player.isPlayingAudio = true; // Set flag immediately
-    const audioItem = player.audioQueue.shift(); // Get the next item
-    
-    const audioStatusEl = player.element.querySelector('.audio-status');
-    const phraseElement = player.element.querySelector(`#phrase-${player.id}-${audioItem.phraseId}`); 
+    if (player.isPlayingAudio || player.audioQueue.length === 0) return;
 
+    player.isPlayingAudio = true; 
+    const audioItem = player.audioQueue.shift(); 
+    
+    // v1.1.3 WATCHDOG: If phrase doesn't finish in 15s, force a reset/skip
+    player.playbackWatchdog = setTimeout(() => {
+      console.warn(`Player ${player.id}: Audio stall detected on phrase ${audioItem.phraseId}. Resetting...`);
+      playAlertSound(); // Trigger the Ding
+      cleanupAudio(player, player.currentAudioUrl, player.currentPhraseEl);
+    }, 15000);
+
+    const phraseElement = player.element.querySelector(`#phrase-${player.id}-${audioItem.phraseId}`);
+    player.currentPhraseEl = phraseElement; // Track for watchdog cleanup
+    
+    // ... (rest of the existing logic to create the Audio object and set source)
     try {
       const blob = new Blob([new Uint8Array(audioItem.data)], { type: 'audio/wav' });
       const audioUrl = URL.createObjectURL(blob);
@@ -799,12 +815,21 @@ function connectPlayerWebSocket(player) {
    * @param {HTMLElement|null} phraseElement - The phrase element to remove styling from
    */
   function cleanupAudio(player, audioUrl, phraseElement) {
-      URL.revokeObjectURL(audioUrl);
+      // v1.1.3: Success path - clear the watchdog so it doesn't fire
+      if (player.playbackWatchdog) {
+        clearTimeout(player.playbackWatchdog);
+        player.playbackWatchdog = null;
+      }
+
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
       if (phraseElement) phraseElement.classList.remove('phrase-playing'); 
-      player.isPlayingAudio = false; // Reset flag FIRST
-      player.currentAudioElement = null; 
-      // Call processAudioQueue AFTER resetting flag to allow next item to play
-      // Use setTimeout to yield execution briefly, preventing potential stack overflow in rapid error scenarios
+      
+      player.isPlayingAudio = false; 
+      player.currentAudioElement = null;
+      player.currentAudioUrl = null;
+      player.currentPhraseEl = null;
+
+      // Allow the engine to move to the next item immediately
       setTimeout(() => processAudioQueue(player), 0); 
   }
 
