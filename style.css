@@ -15,7 +15,7 @@ body {
 /* Login Page */
 #login-page {
   display: flex;
-  justify-content: center;
+  justify-button: center;
   align-items: center;
   min-height: 100vh;
   padding: 20px;
@@ -30,10 +30,10 @@ body {
   padding: 30px;
 }
 
-h1, h2 {
-  text-align: center;
+.login-logo-header {
+  display: flex;
+  justify-button: center;
   margin-bottom: 30px;
-  color: #2c3e50;
 }
 
 /* Tabs */
@@ -127,17 +127,32 @@ input[type="text"] {
 /* App Layout */
 #app-page {
   min-height: 100vh;
-  /* display: flex; // Initial display is handled by JS */
   flex-direction: column;
 }
 
 header {
   background-color: #2c3e50;
   color: white;
-  padding: 15px 20px;
+  padding: 10px 20px;
   display: flex;
-  justify-content: space-between;
+  justify-button: space-between;
   align-items: center;
+}
+
+.logo-container {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.app-title-text {
+  font-size: 1.2rem;
+  font-weight: bold;
+}
+
+.app-title-text small {
+  font-weight: normal;
+  opacity: 0.7;
 }
 
 .session-info {
@@ -181,7 +196,7 @@ main {
   padding: 15px;
   margin-bottom: 15px;
   border-radius: 4px;
-  display: none; /* Shown by JS */
+  display: none;
 }
 
 .no-device-support {
@@ -191,7 +206,7 @@ main {
   margin: 10px 0;
   border-radius: 4px;
   text-align: center;
-  display: none; /* Shown by JS */
+  display: none;
 }
 
 /* Controls */
@@ -201,7 +216,7 @@ main {
   padding: 15px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
   display: flex;
-  justify-content: space-between;
+  justify-button: space-between;
   align-items: center;
   flex-wrap: wrap;
   gap: 15px;
@@ -221,70 +236,48 @@ main {
   font-size: 14px;
 }
 
-.preset-input {
-  min-width: 150px;
-}
-
-.preset-select {
-  min-width: 180px;
-}
+.preset-input { min-width: 150px; }
+.preset-select { min-width: 180px; }
 
 button {
   padding: 8px 15px;
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  transition: background-color 0.3s;
+  transition: 0.3s;
   font-size: 14px;
 }
-button:hover {
-  opacity: 0.9;
-}
+button:hover { opacity: 0.9; }
 
-.preset-btn {
-  color: white;
-}
-
+.preset-btn { color: white; }
 .save-preset-btn { background-color: #f39c12; }
 .load-preset-btn { background-color: #3498db; }
 .delete-preset-btn { background-color: #e74c3c; }
-.save-preset-btn:hover { background-color: #e67e22; }
-.load-preset-btn:hover { background-color: #2980b9; }
-.delete-preset-btn:hover { background-color: #c0392b; }
-
 
 #add-device-btn {
   background-color: #2ecc71;
   color: white;
-}
-#add-device-btn:hover {
-  background-color: #27ae60;
 }
 
 .control-btn {
   background-color: #95a5a6;
   color: white;
 }
-.control-btn:hover {
-  background-color: #7f8c8d;
-}
-
 
 /* Players Grid */
 .player-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
   gap: 20px;
-  flex-grow: 1; /* Allow grid to take available space */
 }
 
 .player {
   background-color: white;
   border-radius: 8px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-  overflow: hidden; /* Important for collapse animation */
+  overflow: hidden;
   display: flex;
-  flex-direction: column; /* Ensure header, settings, content stack vertically */
+  flex-direction: column;
 }
 
 .player-header {
@@ -292,7 +285,7 @@ button:hover {
   color: white;
   padding: 10px 15px;
   display: flex;
-  justify-content: space-between;
+  justify-button: space-between;
   align-items: center;
 }
 
@@ -301,24 +294,19 @@ button:hover {
   font-size: 16px;
   display: flex;
   align-items: center;
-  gap: 8px; /* Space between light and text */
+  gap: 8px;
 }
 
-/* Status light indicator */
 .player-status-light {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  /* margin-right: 8px; */ /* Replaced by gap in player-title */
-  display: inline-block;
-  flex-shrink: 0; /* Prevent shrinking */
+  flex-shrink: 0;
 }
 
 .player-status-light.connected { background-color: #2ecc71; box-shadow: 0 0 5px #2ecc71; }
-.player-status-light.connecting { background-color: #f39c12; box-shadow: 0 0 5px #f39c12; animation: pulse 1.5s infinite ease-in-out; }
-.player-status-light.disconnected { background-color: #e74c3c; box-shadow: 0 0 5px #e74c3c; }
-.player-status-light.error { background-color: #e74c3c; box-shadow: 0 0 5px #e74c3c; }
-.player-status-light.ended { background-color: #95a5a6; box-shadow: 0 0 5px #95a5a6; }
+.player-status-light.connecting { background-color: #f39c12; box-shadow: 0 0 5px #f39c12; animation: pulse 1.5s infinite; }
+.player-status-light.disconnected, .player-status-light.error { background-color: #e74c3c; box-shadow: 0 0 5px #e74c3c; }
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
@@ -329,16 +317,14 @@ button:hover {
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    max-width: 150px; /* Adjust as needed */
+    max-width: 150px;
 }
 
 .player-language-indicator {
   background-color: rgba(255, 255, 255, 0.2);
   padding: 2px 6px;
   border-radius: 4px;
-  /* margin-left: 8px; */ /* Replaced by gap in player-title */
   font-size: 12px;
-  flex-shrink: 0;
 }
 
 .player-controls {
@@ -355,15 +341,8 @@ button:hover {
   cursor: pointer;
   font-size: 12px;
 }
-.player-btn:hover {
-    background-color: rgba(255, 255, 255, 0.4);
-}
 
-.remove-btn { background-color: #c0392b; } /* Darker red */
-.remove-btn:hover { background-color: #e74c3c; }
-.collapse-btn { background-color: #7f8c8d; } /* Grey */
-.collapse-btn:hover { background-color: #95a5a6; }
-
+.remove-btn { background-color: #c0392b; }
 
 /* Player Settings */
 .player-settings {
@@ -372,7 +351,7 @@ button:hover {
   flex-wrap: wrap;
   gap: 15px;
   border-bottom: 1px solid #eee;
-  align-items: center; /* Align items vertically */
+  align-items: center;
 }
 
 .setting-group {
@@ -381,37 +360,24 @@ button:hover {
   gap: 8px;
 }
 
-.setting-label {
-  font-weight: bold;
-  font-size: 14px;
-  white-space: nowrap; /* Prevent wrapping */
-}
+.setting-label { font-weight: bold; font-size: 14px; }
 
 .setting-select {
   padding: 6px 10px;
   border: 1px solid #ddd;
   border-radius: 4px;
   font-size: 14px;
-  min-width: 150px;
-  flex-grow: 1; /* Allow select to grow */
 }
 
 /* Toggle Switch */
 .toggle {
-  display: inline-flex; /* Use inline-flex for better alignment */
+  display: inline-flex;
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  position: relative; /* Needed for label placement */
-  /* margin-left: auto; Push toggle to the right if needed */
 }
 
-.toggle input {
-  opacity: 0; /* Hide checkbox but keep it accessible */
-  width: 0;
-  height: 0;
-  position: absolute;
-}
+.toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
 
 .slider {
   position: relative;
@@ -419,219 +385,93 @@ button:hover {
   height: 20px;
   background-color: #ccc;
   border-radius: 34px;
-  transition: background-color 0.3s;
-  flex-shrink: 0; /* Prevent slider from shrinking */
+  transition: 0.3s;
 }
 
 .slider:before {
   position: absolute;
   content: "";
-  height: 14px;
-  width: 14px;
-  left: 3px;
-  bottom: 3px;
+  height: 14px; width: 14px;
+  left: 3px; bottom: 3px;
   background-color: white;
   border-radius: 50%;
-  transition: transform 0.3s;
+  transition: 0.3s;
 }
 
-input:checked + .slider {
-  background-color: #2980b9;
-}
-
-input:checked + .slider:before {
-  transform: translateX(20px);
-}
-/* Add focus styles for accessibility */
-input:focus-visible + .slider {
-  outline: 2px solid #3498db;
-  outline-offset: 2px;
-}
-
+input:checked + .slider { background-color: #2980b9; }
+input:checked + .slider:before { transform: translateX(20px); }
 
 /* Player Content */
 .player-content {
   padding: 15px;
-  transition: max-height 0.3s ease-out, padding 0.3s ease-out, opacity 0.3s ease-out;
-  max-height: 500px; /* Set a large max-height for expanded state */
+  transition: 0.3s;
+  max-height: 500px;
   overflow: hidden;
-  opacity: 1;
-  flex-grow: 1; /* Allow content to fill space */
   display: flex;
   flex-direction: column;
 }
 
 .player-content.collapsed {
-  max-height: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  opacity: 0;
-  /* border-top: none; Remove border when collapsed */
-  /* visibility: hidden; // Alternative to opacity */
+  max-height: 0; padding-top: 0; padding-bottom: 0; opacity: 0;
 }
 
-
 .player-transcript {
-  max-height: 250px; /* Adjust max height as needed */
+  max-height: 250px;
   overflow-y: auto;
   padding: 10px;
   background-color: #f9f9f9;
   border: 1px solid #eee;
   border-radius: 4px;
   margin-bottom: 15px;
-  flex-grow: 1; /* Allow transcript to grow */
-  display: flex; /* Use flexbox for column-reverse effect if needed */
-  flex-direction: column; /* Stack phrases vertically */
 }
 
 .phrase {
-  margin-bottom: 8px;
-  padding: 8px;
+  margin-bottom: 8px; padding: 8px;
   border-radius: 4px;
   background-color: #f0f0f0;
-  transition: background-color 0.3s ease; /* Smooth background transition */
-}
-/* Remove margin from last phrase */
-.phrase:last-child {
-    margin-bottom: 0;
 }
 
 .phrase-header {
   display: flex;
-  justify-content: space-between;
-  font-size: 11px; /* Smaller font */
+  justify-button: space-between;
+  font-size: 11px;
   color: #7f8c8d;
-  margin-bottom: 4px; /* Less space */
+  margin-bottom: 4px;
 }
 
-.phrase-text {
-  font-size: 14px;
-  word-wrap: break-word; /* Wrap long words */
-}
+.phrase-text { font-size: 14px; word-wrap: break-word; }
 
 .phrase.system-message {
-  background-color: #e8f7ff;
-  color: #3498db;
-  font-style: italic;
-  text-align: center;
-  font-size: 13px;
-}
-.phrase.system-message.error {
-    background-color: #ffeded;
-    color: #e74c3c;
-    font-style: normal;
+  background-color: #e8f7ff; color: #3498db;
+  font-style: italic; text-align: center; font-size: 13px;
 }
 
-/* Style for phrase being played - ADDED */
-.phrase.phrase-playing {
-  background-color: #a0d8ef; /* Light sky blue background */
-}
+.phrase.phrase-playing { background-color: #a0d8ef; }
 
-.player-status, .audio-status {
-  margin-top: auto; /* Push status messages to bottom */
-  padding-top: 10px;
-  font-size: 12px;
-  text-align: center;
-  color: #7f8c8d;
-  border-radius: 4px;
-  padding: 5px 0; /* Adjust padding */
+.audio-status {
+  margin-top: auto;
+  font-size: 12px; text-align: center; color: #7f8c8d;
+  font-weight: bold;
 }
-
-.player-status {
-    font-weight: bold;
-    font-size: 13px;
-}
-.player-status.connected { color: #27ae60; }
-.player-status.connecting { color: #f39c12; }
-.player-status.disconnected { color: #e74c3c; }
-.player-status.error { color: #e74c3c; }
-.player-status.ended { color: #7f8c8d; }
-
 
 /* Notifications */
 .notification {
   position: fixed;
-  bottom: 20px; /* Position at bottom */
-  left: 50%; /* Center horizontally */
-  transform: translateX(-50%); /* Adjust for centering */
+  bottom: 20px; left: 50%;
+  transform: translateX(-50%);
   padding: 12px 20px;
   border-radius: 5px;
   color: white;
   z-index: 1000;
-  max-width: 400px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
-  text-align: center;
-  /* animation: slideInUp 0.4s ease-out, fadeOut 0.5s 2.5s forwards; */ /* CSS animation removed for JS control */
-  opacity: 0; /* Start hidden for JS fade in */
-  transition: opacity 0.5s ease-out; /* CSS transition for fade out */
+  transition: 0.5s;
+  opacity: 0;
 }
 
-.notification.visible { /* Class added by JS to show */
-    opacity: 0.95;
-}
-
+.notification.visible { opacity: 0.95; }
 .notification.success { background-color: #2ecc71; }
 .notification.error { background-color: #e74c3c; }
-.notification.info { background-color: #3498db; } /* Added info type */
 
-/* Responsive Adjustments */
 @media (max-width: 768px) {
-  .controls-panel {
-    flex-direction: column;
-    align-items: stretch; /* Stretch items to full width */
-  }
-  
-  .global-controls, .preset-controls {
-    width: 100%;
-    justify-content: center; /* Center buttons on small screens */
-  }
-
-  .player-grid {
-    grid-template-columns: 1fr; /* Single column */
-    gap: 15px;
-  }
-
-  .player-settings {
-    flex-direction: column;
-    align-items: stretch; /* Stretch settings groups */
-    gap: 10px;
-  }
-
-  .setting-group {
-    width: 100%;
-    justify-content: space-between; /* Space out label and select */
-  }
-
-  .setting-select {
-    min-width: 100px; /* Adjust min-width */
-    flex-grow: 0; /* Don't allow select to grow excessively */
-    max-width: 60%; /* Limit select width */
-  }
-  
-  .toggle {
-     justify-content: space-between;
-     width: 100%;
-  }
-
-  .notification {
-      width: 90%;
-      max-width: none;
-      bottom: 10px;
-  }
-}
-
-@media (max-width: 480px) {
-    h1 { font-size: 1.5em; }
-    .login-card { padding: 20px; }
-    button, input, select { font-size: 14px; padding: 10px; } /* Slightly smaller controls */
-    .player-header { padding: 8px 12px; }
-    .player-title { font-size: 14px; }
-    .player-btn { padding: 3px 6px; font-size: 11px; }
-    .player-settings { padding: 10px; }
-    .setting-label { font-size: 13px; }
-    .setting-select { font-size: 13px; padding: 5px 8px; }
-    .player-content { padding: 10px; }
-    .phrase-text { font-size: 13px; }
-    .phrase-header { font-size: 10px; }
-    .notification { padding: 10px 15px; }
+  .player-grid { grid-template-columns: 1fr; }
+  .controls-panel { flex-direction: column; align-items: stretch; }
 }
