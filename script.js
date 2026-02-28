@@ -1,6 +1,6 @@
-// Wordly Audio Routing Script - Revised (incorporates all fixes + handleSpeechMessage logging)
+// Wordly Audio Routing Script v2.0
 document.addEventListener('DOMContentLoaded', () => {
-  // DOM elements - Login page
+  // --- DOM Elements ---
   const loginPage = document.getElementById('login-page');
   const appPage = document.getElementById('app-page');
   const tabButtons = document.querySelectorAll('.tab-button');
@@ -8,8 +8,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const credentialsForm = document.getElementById('credentials-form');
   const linkForm = document.getElementById('link-form');
   const loginStatus = document.getElementById('login-status');
-  
-  // DOM elements - App page
   const sessionIdDisplay = document.getElementById('session-id-display');
   const disconnectBtn = document.getElementById('disconnect-btn');
   const addDeviceBtn = document.getElementById('add-device-btn');
@@ -17,15 +15,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const browserWarning = document.getElementById('browser-warning');
   const noDeviceSupportMessage = document.getElementById('no-device-support');
   const globalCollapseBtn = document.getElementById('global-collapse-btn');
-  
-  // DOM elements - Preset controls
   const presetNameInput = document.getElementById('preset-name');
   const savePresetBtn = document.getElementById('save-preset-btn');
   const presetSelect = document.getElementById('preset-select');
   const loadPresetBtn = document.getElementById('load-preset-btn');
   const deletePresetBtn = document.getElementById('delete-preset-btn');
-  
-  // Application state
+
+  // --- State ---
   const state = {
     sessionId: null,
     passcode: '',
@@ -36,26 +32,18 @@ document.addEventListener('DOMContentLoaded', () => {
                    typeof HTMLAudioElement.prototype.setSinkId === 'function',
     allCollapsed: false,
     languageMap: {},
-    isUserDisconnecting: false // v1.1 Tracking
+    isUserDisconnecting: false
   };
-  
-  // --- NEW: Fallback language map in case the fetch fails ---
-  // This ensures the app can still run even if the JSON URL is down.
+
   const fallbackLanguageMap = {
-    'en': 'English (US)',
-    'es': 'Spanish (ES)',
-    'fr': 'French (FR)',
-    'de': 'German',
-    'ja': 'Japanese',
-    'pt-BR': 'Portuguese (BR)',
-    'zh-CN': 'Chinese (Simplified)'
+    'en': 'English (US)', 'es': 'Spanish (ES)', 'fr': 'French (FR)',
+    'de': 'German', 'ja': 'Japanese', 'pt-BR': 'Portuguese (BR)', 'zh-CN': 'Chinese (Simplified)'
   };
-  
-  // Initialize the application
-  init(); // This function is now async
-  
-  // --- v1.1: Synthetic Audio Alert (Web Audio API) ---
-  // Generates a two-tone "Ding" sequence using the browser's audio engine.
+
+  init();
+
+  // --- Utilities ---
+
   function playAlertSound() {
     try {
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -71,83 +59,43 @@ document.addEventListener('DOMContentLoaded', () => {
         osc.start(audioCtx.currentTime + start);
         osc.stop(audioCtx.currentTime + start + duration);
       };
-      playTone(440, 0, 0.2); // Low beep
-      playTone(880, 0.2, 0.4); // High beep
-    } catch (e) { console.error("Could not play synthetic alert:", e); }
+      playTone(440, 0, 0.2);
+      playTone(880, 0.2, 0.4);
+    } catch (e) { console.error("Alert failed:", e); }
   }
 
-  // --- v1.1: Reconnection Controller ---
-  // Manages rapid-fire retries (100ms start) and alerts the tech if recovery fails.
   function handleReconnection(player) {
     player.reconnectAttempts = (player.reconnectAttempts || 0) + 1;
-    
-    // Trigger "Ding" alert after 3 failed rapid attempts
     if (player.reconnectAttempts === 3) playAlertSound();
 
-    // Exponential Backoff: 100ms, 200ms, 400ms... capped at 10s
     const delay = Math.min(100 * Math.pow(2, player.reconnectAttempts - 1), 10000);
-    
     updatePlayerStatus(player, 'connecting', `Retrying (${player.reconnectAttempts})...`);
-    console.warn(`Connection lost for ${player.id}. Retrying in ${delay}ms...`);
-
+    
     setTimeout(() => {
-        // Only reconnect if the user hasn't manually disconnected or removed the player
         if (!state.isUserDisconnecting && state.players.find(p => p.id === player.id)) {
             connectPlayerWebSocket(player);
         }
     }, delay);
   }
 
-  // --- Initialization Functions ---
+  // --- Initialization ---
 
-  /**
-   * --- NEW: Fetches and processes the live language list ---
-   * This function is called by init() when the app first loads.
-   */
   async function loadLanguageData() {
     const url = 'https://assets.wordly.ai/language-config/languages.json';
     try {
       const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
-      
-      // Transform the array of objects into the key-value map we need
-      // We also filter to ONLY include languages that are "isTranslatable"
-      const newMap = data.languages
-        .filter(lang => lang.isTranslatable) // Only add translatable languages
-        .reduce((map, lang) => {
-          map[lang.wordlyCode] = lang.englishName; // Use the properties from the JSON
-          return map;
-        }, {});
-
-      if (Object.keys(newMap).length === 0) {
-        throw new Error('Language list was processed but resulted in an empty map.');
-      }
-      
-      state.languageMap = newMap; // Load the new map into our app's state
-      console.log(`Successfully loaded ${Object.keys(state.languageMap).length} languages from URL.`);
-
+      state.languageMap = data.languages.filter(l => l.isTranslatable)
+        .reduce((map, l) => { map[l.wordlyCode] = l.englishName; return map; }, {});
     } catch (error) {
-      console.error('Error fetching or processing language list:', error);
-      console.warn('Falling back to basic hard-coded language list.');
-      state.languageMap = fallbackLanguageMap; // Use the fallback on any error
-      
-      // Notify the user on the login page, as this happens before login.
-      showLoginError('Could not load full language list. Using a basic fallback.');
+      state.languageMap = fallbackLanguageMap;
+      showLoginError('Could not load full language list. Using fallback.');
     }
   }
 
-  /**
-   * --- UPDATED: init() is now async ---
-   * It will 'await' the language list to be loaded before starting the rest of the app.
-   */
   async function init() {
-    await loadLanguageData(); // <-- NEW: Load languages before doing anything else
-    
-    // These functions will now run *after* the language list is ready.
+    await loadLanguageData();
     setupTabs();
     setupLoginForms();
     setupPresetControls();
@@ -157,13 +105,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function checkBrowserCompatibility() {
-    const isChromeBased = /Chrome/.test(navigator.userAgent) || /Edg/.test(navigator.userAgent);
-    if (!isChromeBased) {
-      browserWarning.style.display = 'block';
-    }
-    if (!state.supportsSinkId) {
-      noDeviceSupportMessage.style.display = 'block';
-    }
+    if (!(/Chrome/.test(navigator.userAgent) || /Edg/.test(navigator.userAgent))) browserWarning.style.display = 'block';
+    if (!state.supportsSinkId) noDeviceSupportMessage.style.display = 'block';
   }
 
   function setupTabs() {
@@ -172,8 +115,7 @@ document.addEventListener('DOMContentLoaded', () => {
         tabButtons.forEach(btn => btn.classList.remove('active'));
         tabContents.forEach(content => content.classList.remove('active'));
         button.classList.add('active');
-        const tabId = button.getAttribute('data-tab');
-        document.getElementById(tabId).classList.add('active');
+        document.getElementById(button.getAttribute('data-tab')).classList.add('active');
       });
     });
   }
@@ -185,7 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function setupAppControls() {
     disconnectBtn.addEventListener('click', disconnectFromSession);
-    addDeviceBtn.addEventListener('click', () => addNewPlayer()); // Allow adding player with default settings
+    addDeviceBtn.addEventListener('click', () => addNewPlayer());
     globalCollapseBtn.addEventListener('click', toggleAllPlayers);
   }
 
@@ -195,209 +137,90 @@ document.addEventListener('DOMContentLoaded', () => {
     deletePresetBtn.addEventListener('click', deleteSelectedPreset);
   }
 
-// --- Login and Session Management ---
+  // --- Login & Session ---
 
   function handleCredentialsForm(e) {
     e.preventDefault();
-    state.isUserDisconnecting = false; // v1.1 Reset flag for new attempt
-    let inputSessionId = document.getElementById('session-id').value.trim();
-    const inputPasscode = document.getElementById('passcode').value.trim();
-    
-    if (!isValidSessionId(inputSessionId)) {
-      inputSessionId = formatSessionId(inputSessionId);
-      if (!isValidSessionId(inputSessionId)) {
-        showLoginError('Please enter a valid session ID in the format XXXX-0000');
-        return;
-      }
+    state.isUserDisconnecting = false;
+    let sid = document.getElementById('session-id').value.trim();
+    const pc = document.getElementById('passcode').value.trim();
+    if (!isValidSessionId(sid)) {
+      sid = sid.replace(/[^A-Za-z0-9]/g, '');
+      if (sid.length === 8) sid = `${sid.substring(0, 4)}-${sid.substring(4)}`;
+      if (!isValidSessionId(sid)) { showLoginError('Invalid Session ID format'); return; }
     }
-    processLogin(inputSessionId, inputPasscode);
+    processLogin(sid, pc);
   }
 
   function handleLinkForm(e) {
     e.preventDefault();
-    state.isUserDisconnecting = false; // v1.1 Reset flag for new attempt
-    const weblink = document.getElementById('weblink').value.trim();
-    const { sessionId: parsedSessionId, passcode: parsedPasscode } = parseWeblink(weblink);
-    if (!parsedSessionId) {
-      showLoginError('Unable to extract session information from the provided link');
-      return;
-    }
-    processLogin(parsedSessionId, parsedPasscode || '');
-  }
-
-  function isValidSessionId(sessionId) {
-    return /^[A-Za-z0-9]{4}-\d{4}$/.test(sessionId);
-  }
-
-  function formatSessionId(input) {
-    const cleaned = input.replace(/[^A-Za-z0-9]/g, '');
-    return cleaned.length === 8 ? `${cleaned.substring(0, 4)}-${cleaned.substring(4)}` : input;
-  }
-
-  function parseWeblink(weblink) {
+    state.isUserDisconnecting = false;
+    const link = document.getElementById('weblink').value.trim();
     try {
-      const url = new URL(weblink);
-      let sessionId = null;
-      let passcode = url.searchParams.get('key') || '';
-      const pathParts = url.pathname.split('/').filter(part => part);
-      if (pathParts.length > 0) {
-        const potentialSessionId = pathParts[pathParts.length - 1];
-        if (isValidSessionId(potentialSessionId)) {
-          sessionId = potentialSessionId;
-        } else if (potentialSessionId.length === 8) {
-          const formatted = formatSessionId(potentialSessionId);
-          if (isValidSessionId(formatted)) sessionId = formatted;
-        }
-      }
-      return { sessionId, passcode };
-    } catch (error) {
-      console.error('Error parsing weblink:', error);
-      return { sessionId: null, passcode: '' };
-    }
+      const url = new URL(link);
+      const parts = url.pathname.split('/').filter(p => p);
+      const sid = parts[parts.length - 1].length === 8 ? `${parts[parts.length - 1].substring(0, 4)}-${parts[parts.length - 1].substring(4)}` : parts[parts.length - 1];
+      if (!isValidSessionId(sid)) throw new Error();
+      processLogin(sid, url.searchParams.get('key') || '');
+    } catch (e) { showLoginError('Invalid invite link'); }
   }
 
-  function showLoginError(message) {
-    loginStatus.textContent = message;
-    loginStatus.className = 'status-message error';
-  }
-
-  function showLoginSuccess(message) {
-    loginStatus.textContent = message;
-    loginStatus.className = 'status-message success';
-  }
+  function isValidSessionId(id) { return /^[A-Za-z0-9]{4}-\d{4}$/.test(id); }
 
   async function processLogin(sessionId, passcode) {
-    showLoginSuccess('Fetching audio devices...');
+    showLoginSuccess('Initializing devices...');
     try {
-        // Must get devices *before* switching page to ensure dropdowns populate
         await initializeAudioDevices(); 
-        
         state.sessionId = sessionId;
         state.passcode = passcode;
-
-        showLoginSuccess('Login successful! Connecting to session...');
-        
-        // Switch to app page
         loginPage.style.display = 'none';
-        appPage.style.display = 'flex'; // Use 'flex' to match CSS layout
-        
+        appPage.style.display = 'flex';
         sessionIdDisplay.textContent = `Session: ${sessionId}`;
-        
-        // Add a default player if none exist
-        if (state.players.length === 0) {
-          addNewPlayer(); // Add player with default settings (audio off)
-        }
-        showNotification(`Connected to session ${sessionId}`, 'success');
-
-    } catch (err) {
-        showLoginError(`Failed to initialize audio devices: ${err.message}. Please grant microphone permission.`);
-    }
+        if (state.players.length === 0) addNewPlayer();
+        showNotification(`Connected to ${sessionId}`, 'success');
+    } catch (err) { showLoginError(`Device Error: ${err.message}`); }
   }
 
   async function initializeAudioDevices() {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
-        throw new Error("Media device enumeration not supported.");
-    }
-    try {
-      // Request microphone access to get permission for device enumeration with labels
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      stream.getTracks().forEach(track => track.stop()); // We don't need the stream, just permission
-
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      state.devices = devices.filter(device => device.kind === 'audiooutput');
-      
-      if(state.devices.length === 0) {
-         console.warn("No audio output devices found. setSinkId will not work.");
-      } else {
-         console.log(`Found ${state.devices.length} audio output devices.`);
-      }
-      
-      // Update device dropdowns in existing players if any (e.g., after permission granted later)
-      state.players.forEach(p => {
-          const deviceSelect = p.element.querySelector('.device-select');
-          if (deviceSelect) {
-              populateDeviceSelect(deviceSelect, p.deviceId);
-          }
-      });
-
-    } catch (error) {
-      console.error('Error accessing audio devices:', error);
-      // Re-throw specific error types if needed, or a generic message
-      throw new Error(error.name === 'NotAllowedError' ? 'Microphone permission denied.' : 'Could not access audio devices.');
-    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach(t => t.stop());
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    state.devices = devices.filter(d => d.kind === 'audiooutput');
+    state.players.forEach(p => populateDeviceSelect(p.element.querySelector('.device-select'), p.deviceId));
   }
 
   function disconnectFromSession() {
-    state.isUserDisconnecting = true; // v1.1: Signal that this is an intentional exit
-    console.log("Disconnecting from session...");
-
-    // Stop audio and clear queues for all players first
-
-    state.players.forEach(player => {
-        stopPlayerAudio(player); // Ensure audio stops
-        if (player.websocket && player.websocket.readyState === WebSocket.OPEN) {
-            try {
-                player.websocket.close(1000, "User disconnected"); // Normal closure
-            } catch (e) { console.error("Error closing websocket:", e); }
-        }
+    state.isUserDisconnecting = true;
+    state.players.forEach(p => {
+        stopPlayerAudio(p);
+        if (p.websocket) p.websocket.close(1000, "User Exit");
     });
-
-    // Clear players from state and DOM
     playerGrid.innerHTML = '';
     state.players = [];
-    
-    credentialsForm.reset();
-    linkForm.reset();
-    
     appPage.style.display = 'none';
-    loginPage.style.display = 'flex'; // Use 'flex' as per initial CSS
-    
-    state.sessionId = null;
-    state.passcode = '';
+    loginPage.style.display = 'flex';
     loginStatus.textContent = '';
-    loginStatus.className = 'status-message';
-    
-    showNotification('Disconnected from session', 'success');
   }
 
   // --- Player Management ---
 
   function addNewPlayer(config = {}) {
-    const playerId = `player-${Date.now()}`;
+    const id = `player-${Date.now()}`;
+    const cfg = { language: 'en', deviceId: '', audioEnabled: false, collapsed: false, ...config };
+    const el = document.createElement('div');
+    el.className = 'player';
+    el.id = id;
     
-    // FIX #1: Default audioEnabled to false
-    const defaultConfig = {
-      language: 'en',
-      deviceId: '', // Default to system default initially
-      audioEnabled: false, // Default to OFF
-      collapsed: false
-    };
-    
-    const playerConfig = { ...defaultConfig, ...config };
-
-    // Ensure deviceId exists if set, otherwise use default
-    if (playerConfig.deviceId && !state.devices.find(d => d.deviceId === playerConfig.deviceId)) {
-        console.warn(`Device ID ${playerConfig.deviceId} not found, using system default.`);
-        playerConfig.deviceId = ''; 
-    }
-    
-    const playerEl = document.createElement('div');
-    playerEl.className = 'player';
-    playerEl.id = playerId;
-    
-    const deviceName = getDeviceName(playerConfig.deviceId);
-    const languageName = getLanguageName(playerConfig.language); // <-- USES UPDATED FUNCTION
-    
-    playerEl.innerHTML = `
+    el.innerHTML = `
       <div class="player-header">
         <div class="player-title">
           <span class="player-status-light connecting"></span>
-          <span class="device-name">${deviceName}</span>
-          <span class="player-language-indicator">${languageName}</span>
+          <span class="device-name">${getDeviceName(cfg.deviceId)}</span>
+          <span class="player-language-indicator">${getLanguageName(cfg.language)}</span>
         </div>
         <div class="player-controls">
-          <button class="player-btn collapse-btn" data-action="toggle">Collapse</button>
-          <button class="player-btn remove-btn" data-action="remove">Remove</button>
+          <button class="player-btn collapse-btn">Collapse</button>
+          <button class="player-btn remove-btn">Remove</button>
         </div>
       </div>
       <div class="player-settings">
@@ -410,872 +233,229 @@ document.addEventListener('DOMContentLoaded', () => {
           <select class="setting-select device-select"></select>
         </div>
         <label class="toggle">
-          <input type="checkbox" class="audio-toggle" ${playerConfig.audioEnabled ? 'checked' : ''}>
+          <input type="checkbox" class="audio-toggle" ${cfg.audioEnabled ? 'checked' : ''}>
           <span class="slider"></span>
           <span class="setting-label">Audio</span>
         </label>
       </div>
-      <div class="player-content ${playerConfig.collapsed ? 'collapsed' : ''}">
+      <div class="player-content ${cfg.collapsed ? 'collapsed' : ''}">
         <div class="player-transcript"></div>
-        <div class="player-status connecting">Connecting...</div>
-        <div class="audio-status">Audio ${playerConfig.audioEnabled ? 'ready' : 'off'}</div>
+        <div class="audio-status">Audio ready</div>
       </div>
     `;
     
-    playerGrid.appendChild(playerEl);
+    playerGrid.appendChild(el);
+    populateLanguageSelect(el.querySelector('.language-select'), cfg.language);
+    populateDeviceSelect(el.querySelector('.device-select'), cfg.deviceId);
     
-    const languageSelect = playerEl.querySelector('.language-select');
-    populateLanguageSelect(languageSelect, playerConfig.language); // <-- USES UPDATED FUNCTION
-    
-    const deviceSelect = playerEl.querySelector('.device-select');
-    populateDeviceSelect(deviceSelect, playerConfig.deviceId);
-    
-    // Create player state object
-    const playerInstance = {
-      id: playerId,
-      element: playerEl,
-      language: playerConfig.language,
-      deviceId: playerConfig.deviceId,
-      audioEnabled: playerConfig.audioEnabled,
-      collapsed: playerConfig.collapsed,
-      websocket: null,
-      status: 'connecting',
-      phrases: {},
-      audioQueue: [],        // FIX #2: Added audio queue
-      isPlayingAudio: false, // FIX #2: Flag for queue processing
-      currentAudioElement: null // FIX #6: Track current audio element
+    const inst = {
+      id, element: el, language: cfg.language, deviceId: cfg.deviceId,
+      audioEnabled: cfg.audioEnabled, collapsed: cfg.collapsed,
+      websocket: null, audioQueue: [], isPlayingAudio: false, currentAudioElement: null
     };
     
-    state.players.push(playerInstance);
-    addPlayerEventListeners(playerEl, playerInstance); // Pass instance directly
-    connectPlayerWebSocket(playerInstance);
-    
-    return playerInstance;
+    state.players.push(inst);
+    addPlayerListeners(el, inst);
+    connectPlayerWebSocket(inst);
+    return inst;
   }
 
-  function removePlayer(player) {
-    console.log(`Removing player ${player.id}`);
-    stopPlayerAudio(player); // Stop audio first
+  // --- WebSocket & Messaging ---
 
-    if (player.websocket && player.websocket.readyState !== WebSocket.CLOSED) {
-      try {
-        player.websocket.close(1000, "Player removed");
-      } catch (e) { console.error("Error closing websocket:", e); }
-    }
-    
-    player.element.remove();
-    
-    const index = state.players.findIndex(p => p.id === player.id);
-    if (index !== -1) {
-      state.players.splice(index, 1);
-    }
-    showNotification('Player removed', 'success');
-  }
-
-  function getPlayerById(playerId) {
-    return state.players.find(player => player.id === playerId) || null;
-  }
-
-  // --- WebSocket Handling ---
-
-function connectPlayerWebSocket(player) {
-    if (!state.sessionId) {
-        updatePlayerStatus(player, 'error', 'Missing Session ID');
-        return;
-    }
-    // v1.1: Clear any existing heartbeat before starting a new connection
+  function connectPlayerWebSocket(player) {
     if (player.heartbeatTimer) clearInterval(player.heartbeatTimer);
-
-    updatePlayerStatus(player, 'connecting');
     try {
       player.websocket = new WebSocket('wss://endpoint.wordly.ai/attend');
-      
       player.websocket.onopen = () => {
-        player.reconnectAttempts = 0; // Reset counter on successful open
-        handleWebSocketOpen(player);
-
-        // v1.1 Heartbeat: Send echo every 30s to keep the WSS pipe open
+        player.reconnectAttempts = 0;
+        // v2.0 Identity Fix: Join strictly as listener 
+        player.websocket.send(JSON.stringify({
+          type: 'connect', presentationCode: state.sessionId, languageCode: player.language
+        }));
         player.heartbeatTimer = setInterval(() => {
-          if (player.websocket.readyState === WebSocket.OPEN) {
-            player.websocket.send(JSON.stringify({ type: 'echo' }));
-          }
+          if (player.websocket.readyState === 1) player.websocket.send(JSON.stringify({type: 'echo'}));
         }, 30000);
       };
-
-      player.websocket.onmessage = (event) => handleWebSocketMessage(player, event);
-      
-      player.websocket.onclose = (event) => {
-        // v1.1 Cleanup heartbeat on close
+      player.websocket.onmessage = (e) => handleWSMessage(player, JSON.parse(e.data));
+      player.websocket.onclose = () => {
         if (player.heartbeatTimer) clearInterval(player.heartbeatTimer);
-        
-        if (state.isUserDisconnecting) {
-            updatePlayerStatus(player, 'disconnected', 'Disconnected');
-        } else {
-            // v1.1 Trigger the automatic reconnection loop
-            handleReconnection(player);
-        }
+        if (!state.isUserDisconnecting) handleReconnection(player);
       };
+      player.websocket.onerror = () => player.websocket.close();
+    } catch (e) { handleReconnection(player); }
+  }
 
-      player.websocket.onerror = (error) => {
-        // Force a close to trigger the onclose reconnection logic
-        if (player.websocket) player.websocket.close();
-      };
-    } catch (error) {
-      handleReconnection(player);
+  function handleWSMessage(player, msg) {
+    switch (msg.type) {
+      case 'status': if (msg.success && player.audioEnabled) player.websocket.send(JSON.stringify({type: 'voice', enabled: true})); break;
+      case 'phrase': handlePhrase(player, msg); break;
+      case 'speech': handleSpeech(player, msg); break;
     }
   }
 
-  function handleWebSocketOpen(player) {
-    console.log(`WebSocket connection established for player ${player.id}`);
-    const connectRequest = {
-      type: 'connect',
-      presentationCode: state.sessionId,
-      languageCode: player.language,
-      identifier: player.id // Use player ID as attendee identifier
-    };
-    if (state.passcode) {
-      connectRequest.accessKey = state.passcode;
+  function handlePhrase(player, msg) {
+    const container = player.element.querySelector('.player-transcript');
+    let el = container.querySelector(`#p-${player.id}-${msg.phraseId}`);
+    if (!el) {
+      el = document.createElement('div');
+      el.id = `p-${player.id}-${msg.phraseId}`;
+      el.className = 'phrase';
+      el.innerHTML = `<div class="phrase-header"><span>${msg.name || 'Speaker'}</span></div><div class="phrase-text"></div>`;
+      container.insertBefore(el, container.firstChild);
     }
-    
-    try {
-      player.websocket.send(JSON.stringify(connectRequest));
-      // Send initial voice request based on player state ONLY after successful connection confirmation (in status message)
-    } catch (error) {
-      console.error(`Error sending connect request for player ${player.id}:`, error);
-      updatePlayerStatus(player, 'error', 'Connection error');
-    }
+    el.querySelector('.phrase-text').textContent = msg.translatedText;
   }
 
-  function handleWebSocketMessage(player, event) {
-    try {
-      const message = JSON.parse(event.data);
-      // console.log(`Received message type: ${message.type} for player ${player.id}`); // DEBUG
-      
-      switch (message.type) {
-        case 'status': handleStatusMessage(player, message); break;
-        case 'phrase': handlePhraseMessage(player, message); break;
-        case 'speech': handleSpeechMessage(player, message); break; // -> UPDATED FUNCTION BELOW
-        case 'users': handleUsersMessage(player, message); break;
-        case 'end': handleEndMessage(player); break;
-        case 'error': handleErrorMessage(player, message); break;
-        case 'echo': console.log(`Echo received for player ${player.id}`); break; // Handle echo if needed
-        default: console.warn(`Unhandled message type: ${message.type} for player ${player.id}`);
-      }
-    } catch (error) {
-      console.error(`Error processing message for player ${player.id}:`, error, event.data);
-    }
+  function handleSpeech(player, msg) {
+    if (!player.audioEnabled || !msg.synthesizedSpeech?.data) return;
+    player.audioQueue.push({ data: msg.synthesizedSpeech.data, phraseId: msg.phraseId });
+    processAudioQueue(player);
   }
 
-  function handleWebSocketClose(player, event) {
-    console.log(`WebSocket closed for player ${player.id}. Code: ${event.code}, Reason: ${event.reason}, Was Clean: ${event.wasClean}`);
-    stopPlayerAudio(player); // Ensure audio stops on close
-    const status = event.wasClean || event.code === 1000 ? 'disconnected' : 'error';
-    const message = status === 'disconnected' ? 'Disconnected' : `Connection lost (Code: ${event.code})`;
-    updatePlayerStatus(player, status, message);
-    player.websocket = null; // Clear reference
+  // --- v2.0 Robust Audio Engine ---
 
-    // Optional: Reconnect logic (consider adding backoff)
-    // if (!event.wasClean && state.sessionId && state.players.find(p => p.id === player.id)) {
-    //    console.log(`Attempting to reconnect player ${player.id} in 5 seconds...`);
-    //    setTimeout(() => {
-    //       if (state.players.find(p => p.id === player.id)) { // Check if player still exists
-    //          connectPlayerWebSocket(player);
-    //       }
-    //    }, 5000);
-    // }
-  }
-
-  function handleWebSocketError(player, error) {
-    console.error(`WebSocket error for player ${player.id}:`, error);
-    stopPlayerAudio(player); // Ensure audio stops on error
-    updatePlayerStatus(player, 'error', 'Connection error');
-    // Consider attempting reconnect or closing cleanly
-    if (player.websocket && player.websocket.readyState !== WebSocket.CLOSED) {
-        player.websocket.close(1011, "WebSocket error"); // Internal error code
-    }
-    player.websocket = null;
-  }
-
-  // --- Message Handling Logic ---
-
-  function handleStatusMessage(player, message) {
-    if (message.success) {
-      updatePlayerStatus(player, 'connected', 'Connected');
-      addSystemMessage(player, 'Connected. Waiting for translations...');
-      // Now send initial voice request if needed
-      if (player.audioEnabled) {
-        sendVoiceRequest(player, true); 
-      }
-    } else {
-      updatePlayerStatus(player, 'error', message.message || 'Connection failed');
-      addSystemMessage(player, `Connection error: ${message.message || 'Unknown error'}`, true);
-    }
-  }
-
-  function handlePhraseMessage(player, message) {
-    const phraseId = message.phraseId;
-    const transcriptContainer = player.element.querySelector('.player-transcript');
-    let phraseElement = transcriptContainer.querySelector(`#phrase-${player.id}-${phraseId}`); // Prefix with player ID for uniqueness across players
-
-    if (!phraseElement) {
-        phraseElement = document.createElement('div');
-        phraseElement.id = `phrase-${player.id}-${phraseId}`;
-        phraseElement.className = 'phrase';
-        phraseElement.innerHTML = `
-            <div class="phrase-header">
-                <span class="speaker-name">${message.name || `Speaker ${message.speakerId.slice(-4)}`}</span>
-                <span class="phrase-time">${new Date().toLocaleTimeString()}</span>
-            </div>
-            <div class="phrase-text"></div>`;
-        transcriptContainer.insertBefore(phraseElement, transcriptContainer.firstChild);
-        limitTranscriptSize(transcriptContainer);
-    }
-
-    const textElement = phraseElement.querySelector('.phrase-text');
-    textElement.textContent = message.translatedText;
-
-    player.phrases[phraseId] = message; // Store phrase data if needed later
-  }
-
-  function limitTranscriptSize(transcriptContainer, maxPhrases = 50) {
-    while (transcriptContainer.children.length > maxPhrases) {
-      transcriptContainer.removeChild(transcriptContainer.lastChild);
-    }
-  }
-
-  // --- THIS FUNCTION NOW HAS ADDED LOGGING ---
-  function handleSpeechMessage(player, message) {
-    console.log(`Player ${player.id}: handleSpeechMessage called. AudioEnabled: ${player.audioEnabled}`); // LOG: Function entry and state
-
-    // Check if audio is generally enabled for this player
-    if (!player.audioEnabled) {
-      console.log(`Player ${player.id}: Audio is disabled, skipping speech message.`); // LOG: Skipping
-      return; 
-    }
-
-    if (message.synthesizedSpeech && message.synthesizedSpeech.data && message.synthesizedSpeech.data.length > 0) {
-      console.log(`Player ${player.id}: Received valid speech data for phrase ${message.phraseId}.`); // LOG: Data received
-      
-      // Add to queue
-      player.audioQueue.push({ 
-          data: message.synthesizedSpeech.data, 
-          phraseId: message.phraseId,
-          deviceId: player.deviceId 
-      });
-      console.log(`Player ${player.id}: Queued audio. New queue size: ${player.audioQueue.length}`); // LOG: Queued item
-
-      // Attempt to process the queue
-      processAudioQueue(player); 
-    } else {
-      console.warn(`Player ${player.id}: Received speech message with empty or invalid audio data for phrase ${message.phraseId}.`); // LOG: Invalid data
-      const audioStatusEl = player.element.querySelector('.audio-status');
-      if (audioStatusEl) audioStatusEl.textContent = 'Received empty audio data';
-    }
-  }
-  // --- END OF UPDATED handleSpeechMessage ---
-
-
-  function handleUsersMessage(player, message) {
-    // Could update UI with presenter/attendee info if needed
-    const attendeeCount = (message.others || 0) + (message.attendees?.length || 0);
-    if (player.status === 'connected') { // Only update if connected
-        const statusEl = player.element.querySelector('.player-status');
-        if(statusEl) statusEl.textContent = `Connected (${attendeeCount} attendees)`;
-    }
-  }
-
-  function handleEndMessage(player) {
-    updatePlayerStatus(player, 'ended', 'Session ended');
-    addSystemMessage(player, 'The presentation has ended.');
-    stopPlayerAudio(player); // Stop any playing audio
-    if (player.websocket && player.websocket.readyState === WebSocket.OPEN) {
-      try {
-        player.websocket.close(1000, "Presentation ended");
-      } catch (e) { console.error("Error closing websocket:", e); }
-    }
-    player.websocket = null;
-  }
-
-  function handleErrorMessage(player, message) {
-    updatePlayerStatus(player, 'error', message.message || 'Unknown error');
-    addSystemMessage(player, `Error: ${message.message || 'Unknown error'}`, true);
-    // Consider stopping audio or attempting to close connection on critical errors
-  }
-
-  // --- Audio Playback & Queuing ---
-
-  /** * Processes the audio queue for a player. Plays the next item if not already playing.
-   * @param {Object} player - The player object
-   */
-  /**
-   * v1.1.3: Processes the audio queue with a 15s Watchdog Timer
-   * to prevent "Silent Drops" where the audio engine hangs.
-   */
   function processAudioQueue(player) {
-    const audioStatusEl = player.element.querySelector('.audio-status');
-    
-    // v1.1.3: Visual Sync Check - Shows if audio is lagging behind the text
-    if (audioStatusEl && player.audioEnabled) {
-      audioStatusEl.textContent = player.audioQueue.length > 0 
-        ? `Queue: ${player.audioQueue.length} items` 
-        : 'Audio ready';
+    const status = player.element.querySelector('.audio-status');
+    if (status && player.audioEnabled) {
+      status.textContent = player.audioQueue.length > 0 ? `Queue: ${player.audioQueue.length} items` : 'Audio ready';
     }
 
     if (player.isPlayingAudio || player.audioQueue.length === 0) return;
 
-    player.isPlayingAudio = true; 
-    const audioItem = player.audioQueue.shift(); 
+    player.isPlayingAudio = true;
+    const item = player.audioQueue.shift();
+    const phraseEl = player.element.querySelector(`#p-${player.id}-${item.phraseId}`);
     
-    // v1.1.3 WATCHDOG: If phrase doesn't finish in 15s, force a reset/skip
-    player.playbackWatchdog = setTimeout(() => {
-      console.warn(`Player ${player.id}: Audio stall detected on phrase ${audioItem.phraseId}. Resetting...`);
-      playAlertSound(); // Trigger the Ding
-      cleanupAudio(player, player.currentAudioUrl, player.currentPhraseEl);
-    }, 15000);
+    // v2.0 WATCHDOG: Safety net for browser stalls
+    player.watchdog = setTimeout(() => {
+      console.warn(`Watchdog reset for ${player.id}`);
+      playAlertSound();
+      cleanupAudio(player, player.currentUrl, phraseEl);
+    }, 60000);
 
-    const phraseElement = player.element.querySelector(`#phrase-${player.id}-${audioItem.phraseId}`);
-    player.currentPhraseEl = phraseElement; // Track for watchdog cleanup
-    
-    // ... (rest of the existing logic to create the Audio object and set source)
     try {
-      const blob = new Blob([new Uint8Array(audioItem.data)], { type: 'audio/wav' });
-      const audioUrl = URL.createObjectURL(blob);
+      const blob = new Blob([new Uint8Array(item.data)], { type: 'audio/wav' });
+      const url = URL.createObjectURL(blob);
+      player.currentUrl = url;
 
-      console.log(`Player ${player.id}: Created Blob URL: ${audioUrl} for phrase ${audioItem.phraseId}`);
+      const aud = new Audio();
+      player.currentAudioElement = aud;
+      aud.src = url;
 
-      const audioElement = new Audio();
-      player.currentAudioElement = audioElement; 
-
-      audioElement.src = audioUrl;
-
-      // Event Handlers
-      audioElement.oncanplaythrough = async () => {
-          console.log(`Player ${player.id}: oncanplaythrough event fired.`); 
-          if (audioItem.deviceId && state.supportsSinkId) {
-              try {
-                  console.log(`Player ${player.id}: Attempting to set Sink ID: ${audioItem.deviceId}`); 
-                  await audioElement.setSinkId(audioItem.deviceId);
-                  console.log(`Player ${player.id}: Sink ID set successfully (or promise resolved).`); 
-              } catch (error) {
-                  console.error(`Player ${player.id}: Error setting Sink ID ${audioItem.deviceId}:`, error);
-                  if(audioStatusEl) audioStatusEl.textContent = 'Error setting audio device';
-              }
-          } else if (audioItem.deviceId && !state.supportsSinkId) {
-              console.warn(`Player ${player.id}: Sink ID ${audioItem.deviceId} selected, but browser doesn't support setSinkId.`);
-          } else {
-              console.log(`Player ${player.id}: No specific deviceId to set or browser doesn't support setSinkId.`); 
-          }
-
-          try {
-              await audioElement.play();
-              if(audioStatusEl) audioStatusEl.textContent = 'Playing audio...';
-              if (phraseElement) phraseElement.classList.add('phrase-playing'); 
-          } catch (playError) {
-              console.error(`Player ${player.id}: Error playing audio:`, playError);
-              if(audioStatusEl) audioStatusEl.textContent = 'Audio playback error';
-              cleanupAudio(player, audioUrl, phraseElement); 
-          }
-      };
-      
-      audioElement.onended = () => {
-          if(audioStatusEl) audioStatusEl.textContent = 'Audio playback completed';
-          cleanupAudio(player, audioUrl, phraseElement);
-      };
-
-      audioElement.onerror = (errorEvent) => { 
-          console.error(`Player ${player.id}: Audio element error event occurred.`); 
-          if (audioElement.error) {
-              console.error(`  >> Audio Error Code: ${audioElement.error.code}, Message: ${audioElement.error.message}`);
-          } else {
-              console.error("  >> No specific audioElement.error details available.");
-          }
-          if(audioStatusEl) audioStatusEl.textContent = 'Audio playback error';
-          cleanupAudio(player, audioUrl, phraseElement);
-      };
-
-      audioElement.onstalled = () => {
-          console.warn(`Player ${player.id}: Audio stalled.`);
-      };
-      
-      // Load the audio
-      audioElement.load();
-
-    } catch (error) {
-      console.error(`Player ${player.id}: Error processing audio blob:`, error);
-      if(audioStatusEl) audioStatusEl.textContent = 'Error processing audio';
-      player.isPlayingAudio = false; // Ensure flag is reset on error before trying next item
-      processAudioQueue(player); // Try next item in queue immediately on blob processing error
-    }
-  }
-
-  /**
-   * Cleans up after audio playback (ended or error).
-   * @param {Object} player - The player object
-   * @param {string} audioUrl - The blob URL to revoke
-   * @param {HTMLElement|null} phraseElement - The phrase element to remove styling from
-   */
-  function cleanupAudio(player, audioUrl, phraseElement) {
-      // v1.1.3: Success path - clear the watchdog so it doesn't fire
-      if (player.playbackWatchdog) {
-        clearTimeout(player.playbackWatchdog);
-        player.playbackWatchdog = null;
-      }
-
-      if (audioUrl) URL.revokeObjectURL(audioUrl);
-      if (phraseElement) phraseElement.classList.remove('phrase-playing'); 
-      
-      player.isPlayingAudio = false; 
-      player.currentAudioElement = null;
-      player.currentAudioUrl = null;
-      player.currentPhraseEl = null;
-
-      // Allow the engine to move to the next item immediately
-      setTimeout(() => processAudioQueue(player), 0); 
-  }
-
-
-  /**
-   * Stops currently playing audio and clears the queue for a player gracefully. (Improved Version)
-   * @param {Object} player - The player object
-   */
-  function stopPlayerAudio(player) {
-      console.log(`Player ${player.id}: Stopping audio and clearing queue.`); // DEBUG
-
-      // --- Gracefully handle the currently playing audio element ---
-      const currentAudio = player.currentAudioElement;
-      if (currentAudio) {
-          try {
-              if (!currentAudio.paused && !currentAudio.ended) {
-                  currentAudio.pause();
-                  console.log(`Player ${player.id}: Paused current audio element.`); // DEBUG
-              }
-              currentAudio.oncanplaythrough = null;
-              currentAudio.onended = null;
-              currentAudio.onerror = null; 
-              currentAudio.onstalled = null;
-              currentAudio.src = ''; 
-              currentAudio.load(); 
-          } catch(e) { 
-              console.error(`Player ${player.id}: Error during explicit audio stop:`, e); 
-          } finally {
-              player.currentAudioElement = null; 
-          }
-      }
-      // -----------------------------------------------------------
-
-      // --- Clear the audio queue ---
-      if (player.audioQueue.length > 0) {
-          console.log(`Player ${player.id}: Clearing ${player.audioQueue.length} items from audio queue.`); // DEBUG
-          // If Blobs/URLs need explicit cleanup, do it here
-          player.audioQueue = []; 
-      }
-      // ---------------------------
-
-      // --- Reset playback state ---
-      player.isPlayingAudio = false; 
-      // --------------------------
-
-      // --- Update UI ---
-      const audioStatusEl = player.element.querySelector('.audio-status');
-      if(audioStatusEl) {
-          audioStatusEl.textContent = player.audioEnabled ? "Audio ready" : "Audio off";
-      }
-      const playingPhrase = player.element.querySelector('.phrase-playing');
-      if (playingPhrase) {
-           playingPhrase.classList.remove('phrase-playing');
-       }
-       // -----------------
-  }
-
-
-  // --- UI Updates and Event Handling ---
-
-  function updatePlayerStatus(player, status, message) {
-    player.status = status;
-    const statusLight = player.element.querySelector('.player-status-light');
-    const statusEl = player.element.querySelector('.player-status');
-    if (statusLight) statusLight.className = `player-status-light ${status}`;
-    if (statusEl) {
-      statusEl.className = `player-status ${status}`;
-      statusEl.textContent = message || status.charAt(0).toUpperCase() + status.slice(1);
-    }
-  }
-
-  function addSystemMessage(player, message, isError = false) {
-    const transcriptContainer = player.element.querySelector('.player-transcript');
-    if (!transcriptContainer) return;
-    const messageEl = document.createElement('div');
-    messageEl.className = isError ? 'phrase system-message error' : 'phrase system-message';
-    messageEl.textContent = message;
-    transcriptContainer.insertBefore(messageEl, transcriptContainer.firstChild);
-  }
-
-  /**
-   * --- UPDATED: Reads from state.languageMap ---
-   */
-  function populateLanguageSelect(selectElement, selectedLanguage) {
-    selectElement.innerHTML = ''; // Clear existing
-    
-    // Read from the dynamic map in our app's state
-    Object.entries(state.languageMap).forEach(([code, name]) => {
-      const option = document.createElement('option');
-      option.value = code;
-      option.textContent = name;
-      selectElement.appendChild(option);
-    });
-    
-    // Sort the options alphabetically by text content
-    Array.from(selectElement.options)
-      .sort((a, b) => a.text.localeCompare(b.text))
-      .forEach(option => selectElement.appendChild(option));
-      
-    selectElement.value = selectedLanguage; // Set selected
-  }
-
-  function populateDeviceSelect(selectElement, selectedDeviceId) {
-    selectElement.innerHTML = ''; // Clear existing
-    
-    const defaultOption = document.createElement('option');
-    defaultOption.value = '';
-    defaultOption.textContent = 'System Default';
-    selectElement.appendChild(defaultOption);
-    
-    state.devices.forEach(device => {
-      const option = document.createElement('option');
-      option.value = device.deviceId;
-      option.textContent = device.label || `Output ${device.deviceId.slice(0, 6)}...`;
-      selectElement.appendChild(option);
-    });
-
-    // Ensure the selectedDeviceId still exists, otherwise revert to default
-    if (selectedDeviceId && state.devices.find(d => d.deviceId === selectedDeviceId)) {
-         selectElement.value = selectedDeviceId;
-    } else {
-         selectElement.value = ''; // Default if ID not found
-    }
-  }
-
-  function getDeviceName(deviceId) {
-      if (!deviceId) return 'System Default';
-      const device = state.devices.find(d => d.deviceId === deviceId);
-      return device?.label || `Output ${deviceId.slice(0, 6)}...` || 'Unknown Device';
-  }
-
-  /**
-   * --- UPDATED: Reads from state.languageMap ---
-   */
-  function getLanguageName(code) {
-    // Read from the dynamic map in our app's state
-    return state.languageMap[code] || code;
-  }
-
-  function addPlayerEventListeners(playerEl, player) { // Pass player instance
-    if (!player) {
-        console.error("Attempted to add listeners to non-existent player for element:", playerEl);
-        return;
-    }
-    
-    // Language select change
-    const languageSelect = playerEl.querySelector('.language-select');
-    languageSelect.addEventListener('change', (e) => {
-      const newLanguage = e.target.value;
-      if (newLanguage === player.language) return;
-
-      const oldLanguageName = getLanguageName(player.language); // Uses new function
-      player.language = newLanguage;
-      const newLanguageName = getLanguageName(newLanguage); // Uses new function
-      
-      playerEl.querySelector('.player-language-indicator').textContent = newLanguageName;
-      
-      if (player.websocket && player.websocket.readyState === WebSocket.OPEN) {
-        // FIX #4: Log the message being sent
-        const changeRequest = { type: 'change', languageCode: newLanguage };
-        console.log(`Player ${player.id}: Sending language change request:`, JSON.stringify(changeRequest));
-        
+      aud.oncanplaythrough = async () => {
+        if (player.deviceId && state.supportsSinkId) try { await aud.setSinkId(player.deviceId); } catch(e){}
         try {
-           // Stop audio before changing language to avoid mismatched audio
-           const wasAudioEnabled = player.audioEnabled;
-           if(wasAudioEnabled) sendVoiceRequest(player, false); // Disable voice first
-           stopPlayerAudio(player); // Clear queue etc. (uses improved version)
-
-           player.websocket.send(JSON.stringify(changeRequest));
-           addSystemMessage(player, `Language changed to ${newLanguageName}.`);
-
-           // Re-enable voice if it was on before changing language
-           if (wasAudioEnabled) {
-              setTimeout(() => {
-                // Ensure websocket is still open before sending
-                if (player.websocket && player.websocket.readyState === WebSocket.OPEN) {
-                   sendVoiceRequest(player, true);
-                }
-              }, 500); // Small delay for change to process
-           }
-        } catch (e) {
-           console.error(`Player ${player.id}: Error sending language change:`, e);
-           addSystemMessage(player, `Error changing language: ${e.message}`, true);
-           languageSelect.value = player.language; // Revert dropdown if send fails
-        }
-      } else {
-          console.warn(`Player ${player.id}: WebSocket not open. Language change only affects future connection.`);
-      }
-    });
-    
-    // Device select change
-    const deviceSelect = playerEl.querySelector('.device-select');
-    deviceSelect.addEventListener('change', (e) => {
-      player.deviceId = e.target.value;
-      const deviceName = getDeviceName(player.deviceId);
-      playerEl.querySelector('.device-name').textContent = deviceName;
-      addSystemMessage(player, `Output device set to: ${deviceName}`);
-      // Future audio will use this device ID (passed in audioItem when dequeued)
-    });
-    
-    // Audio toggle
-    const audioToggle = playerEl.querySelector('.audio-toggle');
-    audioToggle.addEventListener('change', (e) => {
-      player.audioEnabled = e.target.checked;
-      const audioStatusEl = player.element.querySelector('.audio-status');
-      
-      if (player.audioEnabled) {
-        if(audioStatusEl) audioStatusEl.textContent = 'Audio ready';
-        addSystemMessage(player, 'Audio translations enabled.');
-        // Send voice request only if connected
-        if (player.websocket && player.websocket.readyState === WebSocket.OPEN) {
-           sendVoiceRequest(player, true);
-        }
-        // Start processing queue if items exist and not already playing
-        processAudioQueue(player); 
-      } else {
-        if(audioStatusEl) audioStatusEl.textContent = 'Audio off';
-        addSystemMessage(player, 'Audio translations disabled.');
-        // Stop current playback and clear queue
-        stopPlayerAudio(player); 
-        // Send voice disable request only if connected
-        if (player.websocket && player.websocket.readyState === WebSocket.OPEN) {
-          sendVoiceRequest(player, false);
-        }
-      }
-    });
-    
-    // Player header buttons (Collapse/Remove)
-    playerEl.querySelector('.player-header').addEventListener('click', (e) => {
-        // FIX #7: Delegate from header, check target specifically
-        if (e.target.matches('.collapse-btn')) {
-            // console.log(`Player ${player.id}: Collapse button clicked`); // DEBUG
-            togglePlayerCollapse(player);
-        } else if (e.target.matches('.remove-btn')) {
-            // console.log(`Player ${player.id}: Remove button clicked`); // DEBUG
-            if (confirm(`Are you sure you want to remove the player for ${getLanguageName(player.language)}?`)) { // Uses new function
-               removePlayer(player);
-            }
-        }
-    });
+          await aud.play();
+          if (phraseEl) phraseEl.classList.add('phrase-playing');
+        } catch(e) { cleanupAudio(player, url, phraseEl); }
+      };
+      aud.onended = () => cleanupAudio(player, url, phraseEl);
+      aud.onerror = () => cleanupAudio(player, url, phraseEl);
+      aud.load();
+    } catch(e) { player.isPlayingAudio = false; setTimeout(() => processAudioQueue(player), 0); }
   }
 
-  function sendVoiceRequest(player, enabled) {
-    if (player.websocket && player.websocket.readyState === WebSocket.OPEN) {
-      try {
-        const voiceRequest = { type: 'voice', enabled: enabled };
-        player.websocket.send(JSON.stringify(voiceRequest));
-        console.log(`Player ${player.id}: Voice request sent (enabled=${enabled})`);
-      } catch (e) {
-        console.error(`Player ${player.id}: Error sending voice request (enabled=${enabled}):`, e);
-      }
-    } else {
-        console.warn(`Player ${player.id}: Cannot send voice request, WebSocket not open.`);
-    }
+  function cleanupAudio(player, url, el) {
+    if (player.watchdog) { clearTimeout(player.watchdog); player.watchdog = null; }
+    if (url) URL.revokeObjectURL(url);
+    if (el) el.classList.remove('phrase-playing');
+    player.isPlayingAudio = false;
+    player.currentAudioElement = null;
+    setTimeout(() => processAudioQueue(player), 0);
   }
 
-  function togglePlayerCollapse(player) {
-    // FIX #7: Added console logs for debugging
-    // console.log(`Toggling collapse for player ${player.id}. Current state: ${player.collapsed}`); // DEBUG
-    player.collapsed = !player.collapsed;
-    
-    const contentEl = player.element.querySelector('.player-content');
-    const collapseBtn = player.element.querySelector('.collapse-btn'); // Query within player element
-    
-    if (!contentEl || !collapseBtn) {
-        console.error(`Player ${player.id}: Could not find content or collapse button elements.`);
-        return; // Exit if elements aren't found
+  function stopPlayerAudio(player) {
+    if (player.watchdog) clearTimeout(player.watchdog);
+    if (player.currentAudioElement) {
+        try { player.currentAudioElement.pause(); player.currentAudioElement.src = ''; } catch(e){}
     }
+    player.audioQueue = []; player.isPlayingAudio = false;
+  }
 
-    contentEl.classList.toggle('collapsed', player.collapsed);
-    collapseBtn.textContent = player.collapsed ? 'Expand' : 'Collapse';
-    // console.log(`Player ${player.id}: New collapsed state: ${player.collapsed}`); // DEBUG
+  // --- UI Helpers ---
+
+  function populateLanguageSelect(sel, selected) {
+    sel.innerHTML = Object.entries(state.languageMap).sort((a,b) => a[1].localeCompare(b[1]))
+      .map(([c,n]) => `<option value="${c}" ${c===selected?'selected':''}>${n}</option>`).join('');
+  }
+
+  function populateDeviceSelect(sel, selected) {
+    sel.innerHTML = `<option value="">System Default</option>` + 
+      state.devices.map(d => `<option value="${d.deviceId}" ${d.deviceId===selected?'selected':''}>${d.label}</option>`).join('');
+  }
+
+  function getDeviceName(id) { return state.devices.find(d => d.deviceId === id)?.label || 'System Default'; }
+  function getLanguageName(c) { return state.languageMap[c] || c; }
+
+  function addPlayerListeners(el, p) {
+    el.querySelector('.language-select').addEventListener('change', (e) => {
+      p.language = e.target.value;
+      el.querySelector('.player-language-indicator').textContent = getLanguageName(p.language);
+      if (p.websocket?.readyState === 1) p.websocket.send(JSON.stringify({type:'change', languageCode: p.language}));
+    });
+    el.querySelector('.device-select').addEventListener('change', (e) => {
+      p.deviceId = e.target.value;
+      el.querySelector('.device-name').textContent = getDeviceName(p.deviceId);
+    });
+    el.querySelector('.audio-toggle').addEventListener('change', (e) => {
+      p.audioEnabled = e.target.checked;
+      if (p.websocket?.readyState === 1) p.websocket.send(JSON.stringify({type:'voice', enabled: p.audioEnabled}));
+      if (p.audioEnabled) processAudioQueue(p); else stopPlayerAudio(p);
+    });
+    el.querySelector('.collapse-btn').addEventListener('click', () => {
+      p.collapsed = !p.collapsed;
+      el.querySelector('.player-content').classList.toggle('collapsed', p.collapsed);
+      el.querySelector('.collapse-btn').textContent = p.collapsed ? 'Expand' : 'Collapse';
+    });
+    el.querySelector('.remove-btn').addEventListener('click', () => { if(confirm('Remove?')) { stopPlayerAudio(p); p.websocket?.close(); el.remove(); state.players = state.players.filter(i=>i.id!==p.id); }});
   }
 
   function toggleAllPlayers() {
     state.allCollapsed = !state.allCollapsed;
-    state.players.forEach(player => {
-      if (player.collapsed !== state.allCollapsed) { // Only toggle if needed
-        togglePlayerCollapse(player); // Use the single toggle function
-      }
+    state.players.forEach(p => {
+        p.collapsed = state.allCollapsed;
+        p.element.querySelector('.player-content').classList.toggle('collapsed', p.collapsed);
+        p.element.querySelector('.collapse-btn').textContent = p.collapsed ? 'Expand' : 'Collapse';
     });
     globalCollapseBtn.textContent = state.allCollapsed ? 'Expand All' : 'Collapse All';
   }
-  
-  // --- Presets (LocalStorage) ---
 
+  function showLoginError(m) { loginStatus.textContent = m; loginStatus.className = 'status-message error'; }
+  function showLoginSuccess(m) { loginStatus.textContent = m; loginStatus.className = 'status-message success'; }
+  function showNotification(m, t) {
+    const n = document.createElement('div'); n.className = `notification ${t}`; n.textContent = m;
+    document.body.appendChild(n);
+    setTimeout(() => n.classList.add('visible'), 10);
+    setTimeout(() => { n.classList.remove('visible'); setTimeout(() => n.remove(), 500); }, 3000);
+  }
+  
+  // --- Storage ---
   function loadPresetsFromStorage() {
-    try {
-      const savedPresets = localStorage.getItem('wordlyAudioPresets'); // Use a more specific key
-      if (savedPresets) {
-        state.presets = JSON.parse(savedPresets);
-        updatePresetDropdown();
-      }
-    } catch (error) {
-      console.error('Error loading presets:', error);
-      localStorage.removeItem('wordlyAudioPresets'); // Clear potentially corrupt data
-    }
+    const s = localStorage.getItem('wordlyPresets');
+    if (s) { state.presets = JSON.parse(s); updatePresetDropdown(); }
   }
-
   function updatePresetDropdown() {
-    // Clear previous options but keep the placeholder
-    const placeholder = presetSelect.options[0];
-    presetSelect.innerHTML = ''; 
-    presetSelect.appendChild(placeholder);
-    
-    Object.keys(state.presets).sort().forEach(presetName => { // Sort names alphabetically
-      const option = document.createElement('option');
-      option.value = presetName;
-      option.textContent = presetName;
-      presetSelect.appendChild(option);
-    });
+    presetSelect.innerHTML = '<option value="">-- Select Preset --</option>' + 
+      Object.keys(state.presets).sort().map(p => `<option value="${p}">${p}</option>`).join('');
   }
-
   function savePreset() {
-    const presetName = presetNameInput.value.trim();
-    if (!presetName) {
-      showNotification('Please enter a name for the preset', 'error');
-      return;
-    }
-    if (!state.sessionId) {
-      showNotification('Cannot save preset, not connected to a session.', 'error');
-      return;
-    }
-
-    const presetConfig = {
-      players: state.players.map(p => ({ // Only save player layout/settings
-        language: p.language,
-        deviceId: p.deviceId,
-        audioEnabled: p.audioEnabled,
-        collapsed: p.collapsed
-      }))
-    };
-    
-    state.presets[presetName] = presetConfig;
-    try {
-      localStorage.setItem('wordlyAudioPresets', JSON.stringify(state.presets));
-      updatePresetDropdown();
-      showNotification(`Preset "${presetName}" saved`, 'success');
-      presetNameInput.value = '';
-      presetSelect.value = presetName; // Select the newly saved preset
-    } catch (error) {
-      console.error('Error saving preset:', error);
-      showNotification('Error saving preset. Storage might be full.', 'error');
-    }
+    const n = presetNameInput.value.trim(); if (!n || !state.sessionId) return;
+    state.presets[n] = { players: state.players.map(p => ({ language: p.language, deviceId: p.deviceId, audioEnabled: p.audioEnabled, collapsed: p.collapsed })) };
+    localStorage.setItem('wordlyPresets', JSON.stringify(state.presets));
+    updatePresetDropdown(); presetNameInput.value = '';
   }
-
   function loadSelectedPreset() {
-    const presetName = presetSelect.value;
-    if (!presetName) {
-      showNotification('Please select a preset to load', 'error');
-      return;
-    }
-    const preset = state.presets[presetName];
-    if (!preset) {
-      showNotification(`Preset "${presetName}" not found`, 'error');
-      return;
-    }
-    if (!state.sessionId) {
-        showNotification('Connect to a session before loading a preset layout.', 'error');
-        return;
-    }
-
-    console.log(`Loading preset "${presetName}"`);
-    
-    const presetPlayerConfigs = preset.players || [];
-    
-    // Disconnect and remove all existing players cleanly
-    state.players.forEach(p => {
-        stopPlayerAudio(p);
-        if (p.websocket && p.websocket.readyState !== WebSocket.CLOSED) {
-             try { p.websocket.close(1000, "Loading preset"); } catch(e){console.error(e);}
-        }
-    });
-    playerGrid.innerHTML = '';
-    state.players = [];
-
-    // Add players from the preset
-    if (presetPlayerConfigs.length > 0) {
-        // Use Promise.all to wait for all players to potentially connect
-        // Although addNewPlayer doesn't return a promise that resolves on connection,
-        // this structure allows adding them sequentially.
-        Promise.all(presetPlayerConfigs.map(playerConfig => {
-            return new Promise(resolve => {
-                 // Add slight delay between adding players if needed, though likely unnecessary
-                 setTimeout(() => {
-                     addNewPlayer(playerConfig); 
-                     resolve();
-                 }, 50); // 50ms delay
-            });
-        })).then(() => {
-            showNotification(`Loaded preset "${presetName}"`, 'success');
-        });
-        
-    } else {
-        showNotification(`Preset "${presetName}" loaded (no players defined)`, 'info');
-    }
+    const p = state.presets[presetSelect.value]; if (!p) return;
+    state.players.forEach(i => { stopPlayerAudio(i); i.websocket?.close(); });
+    playerGrid.innerHTML = ''; state.players = [];
+    p.players.forEach(cfg => addNewPlayer(cfg));
   }
-
   function deleteSelectedPreset() {
-    const presetName = presetSelect.value;
-    if (!presetName) {
-      showNotification('Please select a preset to delete', 'error');
-      return;
-    }
-    if (confirm(`Are you sure you want to delete the preset "${presetName}"?`)) {
-        delete state.presets[presetName];
-        try {
-          localStorage.setItem('wordlyAudioPresets', JSON.stringify(state.presets));
-          updatePresetDropdown();
-           presetSelect.value = ''; // Reset selection
-          showNotification(`Preset "${presetName}" deleted`, 'success');
-        } catch (error) {
-          console.error('Error deleting preset:', error);
-          showNotification('Error deleting preset', 'error');
-        }
-    }
+    delete state.presets[presetSelect.value];
+    localStorage.setItem('wordlyPresets', JSON.stringify(state.presets));
+    updatePresetDropdown();
   }
-  
-  // --- Notifications ---
-
-  function showNotification(message, type = 'success') {
-    const existing = document.querySelector('.notification');
-    if (existing) existing.remove(); // Remove previous one immediately
-
-    const notification = document.createElement('div');
-    notification.className = `notification ${type}`;
-    notification.textContent = message;
-    document.body.appendChild(notification);
-
-    // Add a class to make it visible (for CSS transitions)
-    // Needs a slight delay to ensure the element is in the DOM
-    setTimeout(() => {
-      notification.classList.add('visible');
-    }, 10);
-    
-    const notificationDuration = 3000;
-    
-    // Set timeout to start fading out
-    setTimeout(() => {
-       notification.classList.remove('visible'); // Let CSS handle the fade out
-    }, notificationDuration - 500); // Start fade 500ms before removing
-
-    // Set timeout to remove from DOM after fade out
-    setTimeout(() => {
-       notification.remove();
-    }, notificationDuration);
+  function updatePlayerStatus(p, s, m) {
+    p.element.querySelector('.player-status-light').className = `player-status-light ${s}`;
   }
-
-}); // End DOMContentLoaded
+});
