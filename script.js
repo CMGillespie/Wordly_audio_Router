@@ -26,7 +26,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const state = {
     sessionId: null, passcode: '', devices: [], players: [], presets: {},
     supportsSinkId: typeof HTMLAudioElement !== 'undefined' && typeof HTMLAudioElement.prototype.setSinkId === 'function',
-    allCollapsed: false, languageMap: {}, isUserDisconnecting: false
+    allCollapsed: false, languageMap: {}, isUserDisconnecting: false,
+    // v2.2: Background persistence
+    silentAudio: null, wakeLock: null
   };
 
   const fallbackLanguageMap = {
@@ -47,7 +49,65 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log(`[${timestamp}] ${player.id}: ${action} ${details}`);
   }
 
-  // --- Utilities ---
+  // --- v2.2: BACKGROUND PERSISTENCE ---
+  // Keeps the tab alive when backgrounded/screen locked so WebSocket connections survive.
+
+  function startSilentAudio() {
+    if (state.silentAudio) return;
+    const audio = new Audio('silent.mp3');
+    audio.loop = true;
+    audio.volume = 0.001;
+    audio.play().catch(() => {}); // requires user gesture — called from login submit, so we're good
+    state.silentAudio = audio;
+
+    // Media Session API — registers app with the OS as active media, prevents aggressive backgrounding
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: 'Wordly Audio Router',
+        artist: 'Wordly AI',
+        album: `Session: ${state.sessionId}`
+      });
+      // Override transport controls so OS doesn't stop our silent loop
+      ['play','pause','stop','nexttrack','previoustrack'].forEach(action => {
+        try { navigator.mediaSession.setActionHandler(action, () => {}); } catch(e) {}
+      });
+    }
+  }
+
+  function stopSilentAudio() {
+    if (state.silentAudio) {
+      state.silentAudio.pause();
+      state.silentAudio.src = '';
+      state.silentAudio = null;
+    }
+    if ('mediaSession' in navigator) {
+      ['play','pause','stop','nexttrack','previoustrack'].forEach(action => {
+        try { navigator.mediaSession.setActionHandler(action, null); } catch(e) {}
+      });
+    }
+  }
+
+  async function requestWakeLock() {
+    if ('wakeLock' in navigator) {
+      try { state.wakeLock = await navigator.wakeLock.request('screen'); } catch(e) {}
+    }
+  }
+
+  function setupVisibilityHandler() {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        // Foreground return — reacquire wake lock and kick any dead WebSockets immediately
+        requestWakeLock();
+        state.players.forEach(p => {
+          if (p.websocket && p.websocket.readyState !== WebSocket.OPEN && p.websocket.readyState !== WebSocket.CONNECTING) {
+            connectPlayerWebSocket(p);
+          }
+        });
+      }
+    });
+  }
+
+  // END v2.2 BACKGROUND PERSISTENCE
   function playAlertSound() {
     try {
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -105,6 +165,7 @@ document.addEventListener('DOMContentLoaded', () => {
     await loadLanguageData();
     setupTabs(); setupLoginForms(); setupPresetControls(); setupAppControls();
     checkBrowserCompatibility(); loadPresetsFromStorage();
+    setupVisibilityHandler();
     document.getElementById('return-to-login-btn').addEventListener('click', () => location.reload());
   }
 
@@ -165,6 +226,8 @@ document.addEventListener('DOMContentLoaded', () => {
         state.sessionId = sessionId; state.passcode = passcode;
         loginPage.style.display = 'none'; appPage.style.display = 'flex';
         sessionIdDisplay.textContent = `Session: ${sessionId}`;
+        startSilentAudio();
+        requestWakeLock();
         if (state.players.length === 0) addNewPlayer();
     } catch (err) { showLoginError(`Device Error: ${err.message}`); }
   }
@@ -179,7 +242,10 @@ document.addEventListener('DOMContentLoaded', () => {
   function disconnectFromSession() {
     state.isUserDisconnecting = true;
     state.players.forEach(p => { stopPlayerAudio(p); if (p.websocket) p.websocket.close(1000, "User Exit"); });
-    playerGrid.innerHTML = ''; state.players = []; appPage.style.display = 'none'; loginPage.style.display = 'flex';
+    playerGrid.innerHTML = ''; state.players = []; 
+    stopSilentAudio();
+    if (state.wakeLock) { state.wakeLock.release().catch(() => {}); state.wakeLock = null; }
+    appPage.style.display = 'none'; loginPage.style.display = 'flex';
   }
 
   // --- Player Management ---
