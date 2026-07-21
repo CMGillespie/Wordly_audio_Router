@@ -1,4 +1,20 @@
-// Wordly Audio Routing Script v2.1
+// Wordly Audio Routing Script v2.2
+// v2.2 CHANGE — Fixed rogue-utterance-to-default-device bug (race condition
+// investigation with Chris/Claude, July 2026):
+//   ROOT CAUSE: setSinkId() was already being awaited before play() — the
+//   actual bug was the empty `catch(e){}` right after it. If setSinkId()
+//   ever REJECTED (plausible under Google Meet's WebRTC contention on the
+//   audio subsystem) the failure was silently swallowed and play() ran
+//   anyway on whatever device the element defaulted to — system default.
+//   One rogue utterance, no visible error, self-corrects next phrase.
+//   FIX: assignSinkWithRetry() below retries once on failure, logs it via
+//   logEvent(), and — if it still fails — skips playback for that
+//   utterance entirely rather than let it play on the wrong device.
+//   STATUS: Implemented, NOT YET LIVE-TESTED against the Televic USB
+//   interpretation system. Confirm with a real multi-hour session
+//   (ideally with Google Meet running concurrently, since that's what
+//   widened the failure window originally) before treating this as a
+//   confirmed version milestone.
 document.addEventListener('DOMContentLoaded', () => {
   // --- DOM Elements ---
   const loginPage = document.getElementById('login-page');
@@ -338,6 +354,28 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // --- Audio Engine ---
+
+  // v2.2 — NEW: retries setSinkId once on failure, logs the outcome via
+  // logEvent(), and returns false (rather than swallowing the error)
+  // if it never succeeds. Callers MUST check the return value and skip
+  // playback on false — never fall through to play() on a sink
+  // assignment that didn't actually succeed.
+  async function assignSinkWithRetry(aud, deviceId, player) {
+    const attempt = async () => {
+      try { await aud.setSinkId(deviceId); return true; }
+      catch (e) { return false; }
+    };
+    if (await attempt()) return true;
+
+    logEvent(player, "SINK_ASSIGN_RETRY", `device=${deviceId}`);
+    await new Promise(resolve => setTimeout(resolve, 150));
+
+    if (await attempt()) return true;
+
+    logEvent(player, "SINK_ASSIGN_FAILED", `device=${deviceId} — skipping playback rather than route to wrong device`);
+    return false;
+  }
+
   function processAudioQueue(player) {
     const status = player.element.querySelector('.audio-status');
     if (status && player.audioEnabled) { status.textContent = player.audioQueue.length > 0 ? `Queue: ${player.audioQueue.length} items` : 'Audio ready'; }
@@ -354,7 +392,15 @@ document.addEventListener('DOMContentLoaded', () => {
       player.currentUrl = url;
       const aud = new Audio(); player.currentAudioElement = aud; aud.src = url;
       aud.oncanplaythrough = async () => {
-        if (player.deviceId && state.supportsSinkId) try { await aud.setSinkId(player.deviceId); } catch(e){}
+        if (player.deviceId && state.supportsSinkId) {
+          // v2.2 FIX: previously `try { await aud.setSinkId(...) } catch(e){}`
+          // silently swallowed rejections and fell through to play() anyway,
+          // on whatever device the element defaulted to. Now: retry once,
+          // and if it still fails, skip this utterance's playback entirely
+          // rather than let it leak to the wrong output device.
+          const sinkOk = await assignSinkWithRetry(aud, player.deviceId, player);
+          if (!sinkOk) { cleanupAudio(player, url, phraseEl); return; }
+        }
         try { await aud.play(); if (phraseEl) phraseEl.classList.add('phrase-playing'); } catch(e) { cleanupAudio(player, url, phraseEl); }
       };
       aud.onended = () => cleanupAudio(player, url, phraseEl);
